@@ -114,21 +114,23 @@ struct ContentView: View {
                 } else {
                     GeometryReader { geometry in
                         let spacing = 12 * interfaceScale
+                        let gridWidth = max(1, geometry.size.width - 28)
                         let minimumWidth = 190 * interfaceScale
-                        let availableWidth = max(1, geometry.size.width - 28)
-                        let columnCount = max(1, Int((availableWidth + spacing) / (minimumWidth + spacing)))
-                        let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: columnCount)
+                        let columnCount = max(1, Int((gridWidth + spacing) / (minimumWidth + spacing)))
+                        let cardWidth = (gridWidth - spacing * Double(columnCount - 1)) / Double(columnCount)
+                        let columns = Array(repeating: GridItem(.fixed(cardWidth), spacing: spacing, alignment: .top), count: columnCount)
 
                         ScrollView {
                             LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
                                 ForEach(filteredProducts) { product in
                                     Button { selectedProduct = product } label: {
                                         PluginCard(product: product, artworkPath: store.artworkPaths[product.id], scale: interfaceScale)
+                                            .frame(width: cardWidth, height: 178 * interfaceScale, alignment: .topLeading)
                                     }
                                     .buttonStyle(.plain)
                                 }
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(width: gridWidth, alignment: .leading)
                             .padding(14)
                         }
                     }
