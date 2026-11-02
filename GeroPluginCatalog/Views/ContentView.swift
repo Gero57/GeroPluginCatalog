@@ -10,6 +10,7 @@ struct ContentView: View {
             let matchesSearch = searchText.isEmpty
                 || plugin.name.localizedCaseInsensitiveContains(searchText)
                 || (plugin.manufacturer?.localizedCaseInsensitiveContains(searchText) ?? false)
+                || plugin.path.localizedCaseInsensitiveContains(searchText)
             let matchesFormat = selectedFormat == nil || plugin.format == selectedFormat
             return matchesSearch && matchesFormat
         }
