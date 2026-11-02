@@ -1,8 +1,9 @@
 import Foundation
 
 struct PluginInstallation: Identifiable, Hashable, Codable {
-    /// Stable identity for this particular installed format/location.
-    var id: String { "\(format.rawValue)|\(path)" }
+    /// Stable identity for a plug-in class in a particular format/location.
+    /// One VST3 bundle can expose multiple audio plug-in classes.
+    var id: String { "\(format.rawValue)|\(path)|\(name)" }
 
     let name: String
     let format: PluginFormat
