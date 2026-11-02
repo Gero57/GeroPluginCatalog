@@ -4,15 +4,27 @@ struct ContentView: View {
     @EnvironmentObject private var store: PluginCatalogStore
     @State private var searchText = ""
     @State private var selectedFormat: PluginFormat?
+    @State private var selectedCategory: PluginCategory?
+    @State private var selectedProduct: PluginProduct?
 
-    private var filteredPlugins: [PluginInstallation] {
-        store.installations.filter { plugin in
+    private var filteredProducts: [PluginProduct] {
+        PluginProduct.catalog(from: store.installations).filter { product in
             let matchesSearch = searchText.isEmpty
-                || plugin.name.localizedCaseInsensitiveContains(searchText)
-                || (plugin.manufacturer?.localizedCaseInsensitiveContains(searchText) ?? false)
-                || plugin.path.localizedCaseInsensitiveContains(searchText)
-            let matchesFormat = selectedFormat == nil || plugin.format == selectedFormat
-            return matchesSearch && matchesFormat
+                || product.name.localizedCaseInsensitiveContains(searchText)
+                || (product.manufacturer?.localizedCaseInsensitiveContains(searchText) ?? false)
+                || product.installations.contains { $0.path.localizedCaseInsensitiveContains(searchText) }
+            let matchesFormat = selectedFormat == nil
+                || product.installations.contains { $0.format == selectedFormat }
+            let matchesCategory = selectedCategory == nil || product.category == selectedCategory
+            return matchesSearch && matchesFormat && matchesCategory
+        }
+    }
+
+    private var categoryCounts: [(PluginCategory, Int)] {
+        let products = PluginProduct.catalog(from: store.installations)
+        return PluginCategory.allCases.compactMap { category in
+            let count = products.filter { $0.category == category }.count
+            return count > 0 ? (category, count) : nil
         }
     }
 
@@ -20,15 +32,35 @@ struct ContentView: View {
         NavigationSplitView {
             List {
                 Section("Library") {
-                    Label("All Plug-ins", systemImage: "square.grid.2x2")
-                        .badge(store.installations.count)
+                    Button {
+                        selectedCategory = nil
+                        selectedFormat = nil
+                    } label: {
+                        Label("All Plug-ins", systemImage: "square.grid.2x2")
+                    }
+                    .buttonStyle(.plain)
                 }
+
+                Section("Categories") {
+                    ForEach(categoryCounts, id: \.0) { category, count in
+                        Button {
+                            selectedCategory = selectedCategory == category ? nil : category
+                        } label: {
+                            Label(category.rawValue, systemImage: category.symbol)
+                                .badge(count)
+                                .foregroundStyle(selectedCategory == category ? Color.accentColor : .primary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
                 Section("Formats") {
                     ForEach(PluginFormat.allCases) { format in
                         Button {
                             selectedFormat = selectedFormat == format ? nil : format
                         } label: {
                             Label(format.rawValue, systemImage: "puzzlepiece.extension")
+                                .badge(store.installations.filter { $0.format == format }.count)
                                 .foregroundStyle(selectedFormat == format ? Color.accentColor : .primary)
                         }
                         .buttonStyle(.plain)
@@ -40,32 +72,45 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 header
                 Divider()
-                if filteredPlugins.isEmpty {
+                if filteredProducts.isEmpty {
                     ContentUnavailableView(
                         store.installations.isEmpty ? "No Plug-ins Catalogued" : "No Matching Plug-ins",
                         systemImage: "puzzlepiece.extension",
                         description: Text(store.installations.isEmpty
                             ? "Run a scan to build your local plug-in inventory."
-                            : "Try another search or format filter.")
+                            : "Try another search, category or format filter.")
                     )
                 } else {
-                    List(filteredPlugins) { plugin in
-                        PluginRow(plugin: plugin)
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
+                            ForEach(filteredProducts) { product in
+                                Button {
+                                    selectedProduct = product
+                                } label: {
+                                    PluginCard(product: product)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(20)
                     }
-                    .listStyle(.inset)
                 }
                 footer
             }
         }
-        .searchable(text: $searchText, prompt: "Search name or manufacturer")
+        .searchable(text: $searchText, prompt: "Search plug-in or manufacturer")
+        .sheet(item: $selectedProduct) { product in
+            PluginDetailSheet(product: product)
+                .frame(minWidth: 560, minHeight: 420)
+        }
     }
 
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Your Audio Plug-ins")
+                Text(selectedCategory?.rawValue ?? "Your Audio Plug-ins")
                     .font(.largeTitle.bold())
-                Text("\(filteredPlugins.count) shown · \(store.installations.count) catalogued")
+                Text("\(filteredProducts.count) products · \(filteredProducts.reduce(0) { $0 + $1.installations.count }) installations")
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -95,45 +140,98 @@ struct ContentView: View {
     }
 }
 
-private struct PluginRow: View {
-    let plugin: PluginInstallation
+private struct PluginCard: View {
+    let product: PluginProduct
 
     var body: some View {
-        HStack(spacing: 14) {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.secondary.opacity(0.12))
-                .frame(width: 58, height: 58)
-                .overlay {
-                    Image(systemName: "puzzlepiece.extension")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.secondary.opacity(0.10))
+                Image(systemName: product.category.symbol)
+                    .font(.system(size: 38, weight: .light))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(height: 112)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(plugin.name).font(.headline)
-                Text(plugin.manufacturer ?? "Manufacturer not available")
+                Text(product.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                Text(product.manufacturer ?? "Manufacturer not available")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text(plugin.path)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(plugin.format.rawValue)
-                    .font(.caption.bold())
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(.quaternary, in: Capsule())
-                if let version = plugin.version {
-                    Text("v\(version)").font(.caption2).foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                ForEach(Array(Set(product.installations.map(\.format))).sorted { $0.rawValue < $1.rawValue }) { format in
+                    Text(format.rawValue)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(.quaternary, in: Capsule())
                 }
-                Text(plugin.isUserInstalled ? "User" : "System")
+                Spacer(minLength: 0)
+                Text(product.category.rawValue)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 5)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct PluginDetailSheet: View {
+    let product: PluginProduct
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Image(systemName: product.category.symbol)
+                    .font(.system(size: 34))
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(product.name).font(.title.bold())
+                    Text(product.manufacturer ?? "Manufacturer not available")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Close") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+
+            Divider()
+            Text("Installed formats and locations")
+                .font(.headline)
+
+            List(product.installations) { installation in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text(installation.format.rawValue).font(.subheadline.bold())
+                        Spacer()
+                        Text(installation.version.map { "Version \($0)" } ?? "Version unknown")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(installation.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                .padding(.vertical, 4)
+            }
+
+            Text("This catalog only reads plug-in information. It never loads, moves or changes plug-ins.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(22)
     }
 }
