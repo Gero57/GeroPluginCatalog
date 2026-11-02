@@ -5,6 +5,9 @@ import SwiftUI
 final class PluginCatalogStore: ObservableObject {
     @Published private(set) var installations: [PluginInstallation] = []
     @Published private(set) var manualPlugins: [ManualPlugin] = []
+    @Published private(set) var products: [PluginProduct] = []
+    @Published private(set) var categoryCounts: [PluginCategory: Int] = [:]
+    @Published private(set) var formatCounts: [PluginFormat: Int] = [:]
     @Published private(set) var isScanning = false
     @Published private(set) var lastScanDate: Date?
     @Published private(set) var scanMessage = "Ready to scan"
@@ -21,6 +24,7 @@ final class PluginCatalogStore: ObservableObject {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         manualCatalogURL = support.appendingPathComponent("GeroPluginCatalog/manual-plugins.json")
         loadManualPlugins()
+        rebuildCatalog()
     }
 
     func addManualPlugin(name: String, manufacturer: String, category: PluginCategory, format: String) {
@@ -30,6 +34,7 @@ final class PluginCatalogStore: ObservableObject {
             manufacturer: manufacturer.trimmingCharacters(in: .whitespacesAndNewlines),
             category: category, format: format))
         saveManualPlugins()
+        rebuildCatalog()
         scanMessage = "Manual plug-in added"
     }
 
@@ -59,11 +64,34 @@ final class PluginCatalogStore: ObservableObject {
                 self.installations = result.installations
                 self.lastScanDate = Date()
                 self.isScanning = false
+                self.rebuildCatalog()
                 self.scanMessage = result.inaccessibleFolders.isEmpty
                     ? "Scan completed · manual entries preserved"
                     : "Scan completed with \(result.inaccessibleFolders.count) unreadable folder(s) · manual entries preserved"
             }
         }
+    }
+
+    /// Rebuilds the expensive grouped catalog only when its source data changes,
+    /// never as a side effect of selecting a filter or opening a card.
+    private func rebuildCatalog() {
+        let newProducts = PluginProduct.catalog(from: installations, manual: manualPlugins)
+        products = newProducts
+
+        var categories: [PluginCategory: Int] = [:]
+        var formats: [PluginFormat: Int] = [:]
+        for product in newProducts {
+            categories[product.category, default: 0] += 1
+            for format in Set(product.installations.map(\.format)) {
+                formats[format, default: 0] += 1
+            }
+            if let manualFormat = product.manualFormat,
+               let format = PluginFormat.allCases.first(where: { $0.rawValue == manualFormat }) {
+                formats[format, default: 0] += 1
+            }
+        }
+        categoryCounts = categories
+        formatCounts = formats
     }
 
     private func loadManualPlugins() {

@@ -1,6 +1,19 @@
 import SwiftUI
 import AppKit
 
+private enum ArtworkImageCache {
+    static let cache = NSCache<NSString, NSImage>()
+
+    static func image(at path: String?) -> NSImage? {
+        guard let path, !path.isEmpty else { return nil }
+        let key = path as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var store: PluginCatalogStore
     @State private var searchText = ""
@@ -42,28 +55,17 @@ struct ContentView: View {
         }
     }
 
-    private var allProducts: [PluginProduct] {
-        PluginProduct.catalog(from: store.installations, manual: store.manualPlugins)
-    }
-
     private var filteredProducts: [PluginProduct] {
-        allProducts.filter { product in
+        store.products.filter { product in
             let matchesSearch = searchText.isEmpty
                 || product.name.localizedCaseInsensitiveContains(searchText)
                 || (product.manufacturer?.localizedCaseInsensitiveContains(searchText) ?? false)
                 || product.installations.contains { $0.path.localizedCaseInsensitiveContains(searchText) }
             let matchesFormat = selectedFormat == nil
                 || product.installations.contains { $0.format == selectedFormat }
-                || (product.manualFormat == selectedFormat?.rawValue)
+                || product.manualFormat == selectedFormat?.rawValue
             let matchesCategory = selectedCategory == nil || product.category == selectedCategory
             return matchesSearch && matchesFormat && matchesCategory
-        }
-    }
-
-    private var categoryCounts: [(PluginCategory, Int)] {
-        PluginCategory.allCases.compactMap { category in
-            let count = allProducts.filter { $0.category == category }.count
-            return count > 0 ? (category, count) : nil
         }
     }
 
@@ -79,12 +81,12 @@ struct ContentView: View {
                     }.buttonStyle(.plain)
                 }
                 Section("Categories") {
-                    ForEach(PluginCategory.allCases.filter { category in categoryCounts.contains { $0.0 == category } }, id: \.self) { category in
+                    ForEach(PluginCategory.allCases.filter { (store.categoryCounts[$0] ?? 0) > 0 }, id: \.self) { category in
                         Button {
                             selectedCategory = selectedCategory == category ? nil : category
                         } label: {
                             Label(category.rawValue, systemImage: category.symbol)
-                                .badge(categoryCounts.first { $0.0 == category }?.1 ?? 0)
+                                .badge(store.categoryCounts[category] ?? 0)
                                 .foregroundStyle(selectedCategory == category ? Color.accentColor : .primary)
                         }.buttonStyle(.plain)
                     }
@@ -95,7 +97,7 @@ struct ContentView: View {
                             selectedFormat = selectedFormat == format ? nil : format
                         } label: {
                             Label(format.rawValue, systemImage: "puzzlepiece.extension")
-                                .badge(store.installations.filter { $0.format == format }.count + store.manualPlugins.filter { $0.format == format.rawValue }.count)
+                                .badge(store.formatCounts[format] ?? 0)
                                 .foregroundStyle(selectedFormat == format ? Color.accentColor : .primary)
                         }.buttonStyle(.plain)
                     }
@@ -110,16 +112,25 @@ struct ContentView: View {
                     ContentUnavailableView("No Plug-ins Catalogued", systemImage: "puzzlepiece.extension",
                         description: Text("Run a scan or add a plug-in manually."))
                 } else {
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190 * interfaceScale, maximum: 240 * interfaceScale), spacing: 12 * interfaceScale)], spacing: 12 * interfaceScale) {
-                            ForEach(filteredProducts) { product in
-                                Button { selectedProduct = product } label: {
-                                    PluginCard(product: product, artworkPath: store.artworkPaths[product.id], scale: interfaceScale)
-                                }.buttonStyle(.plain)
+                    GeometryReader { geometry in
+                        let spacing = 12 * interfaceScale
+                        let minimumWidth = 190 * interfaceScale
+                        let availableWidth = max(1, geometry.size.width - 28)
+                        let columnCount = max(1, Int((availableWidth + spacing) / (minimumWidth + spacing)))
+                        let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: columnCount)
+
+                        ScrollView {
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
+                                ForEach(filteredProducts) { product in
+                                    Button { selectedProduct = product } label: {
+                                        PluginCard(product: product, artworkPath: store.artworkPaths[product.id], scale: interfaceScale)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
                     }
                 }
                 footer
@@ -179,11 +190,12 @@ private struct PluginCard: View {
     let product: PluginProduct
     let artworkPath: String?
     var scale: Double = 1.0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * scale) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.10))
-                if let artworkPath, let artwork = NSImage(contentsOfFile: artworkPath) {
+                if let artwork = ArtworkImageCache.image(at: artworkPath) {
                     Image(nsImage: artwork).resizable().scaledToFit().padding(8)
                 } else {
                     Image(systemName: product.category.symbol).font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
@@ -205,10 +217,12 @@ private struct PluginCard: View {
                 Spacer(minLength: 0)
                 Text(product.category.rawValue).font(.caption2).foregroundStyle(.secondary)
             }
-        }.padding(9 * scale).frame(maxWidth: 240 * scale, alignment: .leading)
-            .background(.background, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .padding(9 * scale)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 
@@ -219,7 +233,7 @@ private struct PluginDetailSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                if let artworkPath = store.artworkPaths[product.id], let artwork = NSImage(contentsOfFile: artworkPath) {
+                if let artwork = ArtworkImageCache.image(at: store.artworkPaths[product.id]) {
                     Image(nsImage: artwork).resizable().scaledToFit().frame(width: 76, height: 64)
                 } else {
                     Image(systemName: product.category.symbol).font(.system(size: 34)).foregroundStyle(.secondary).frame(width: 76, height: 64)
@@ -256,19 +270,15 @@ private struct PluginDetailSheet: View {
     }
 }
 
-
 private struct AppearanceSettings: View {
     @Binding var theme: String
     @Binding var accent: String
     @Binding var scale: Double
-
     private let accents = ["Blue", "Purple", "Green", "Orange", "Pink", "Red"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label("Interface appearance", systemImage: "paintpalette")
-                .font(.headline)
-
+            Label("Interface appearance", systemImage: "paintpalette").font(.headline)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Theme").font(.subheadline.weight(.semibold))
                 Picker("Theme", selection: $theme) {
@@ -277,23 +287,17 @@ private struct AppearanceSettings: View {
                     Text("Dark").tag("Dark")
                 }.pickerStyle(.segmented)
             }
-
             VStack(alignment: .leading, spacing: 8) {
                 Text("Interface color").font(.subheadline.weight(.semibold))
                 HStack(spacing: 11) {
                     ForEach(accents, id: \.self) { item in
                         Button { accent = item } label: {
-                            Circle()
-                                .fill(color(for: item))
-                                .frame(width: 25, height: 25)
+                            Circle().fill(color(for: item)).frame(width: 25, height: 25)
                                 .overlay(Circle().strokeBorder(.primary.opacity(accent == item ? 0.8 : 0), lineWidth: 2).padding(-3))
-                        }
-                        .buttonStyle(.plain)
-                        .help(item)
+                        }.buttonStyle(.plain).help(item)
                     }
                 }
             }
-
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Interface size").font(.subheadline.weight(.semibold))
@@ -309,11 +313,7 @@ private struct AppearanceSettings: View {
             }
             HStack {
                 Spacer()
-                Button("Reset") {
-                    theme = "System"
-                    accent = "Blue"
-                    scale = 1.0
-                }
+                Button("Reset") { theme = "System"; accent = "Blue"; scale = 1.0 }
             }
         }
     }
@@ -337,8 +337,8 @@ private struct AddPluginSheet: View {
     @State private var manufacturer = "Steinberg"
     @State private var category: PluginCategory = .reverb
     @State private var format = "Cubase Internal"
-
     private let formats = ["Cubase Internal", "VST3", "VST2", "AU", "Other"]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Plug-in").font(.title.bold())
