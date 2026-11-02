@@ -23,17 +23,10 @@ struct PluginScanner {
         for root in roots {
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: root.url.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                continue
-            }
+                  isDirectory.boolValue else { continue }
 
-            scanDirectory(
-                root.url,
-                format: root.format,
-                isUser: root.isUser,
-                found: &found,
-                inaccessible: &inaccessible
-            )
+            scanDirectory(root.url, format: root.format, isUser: root.isUser,
+                          found: &found, inaccessible: &inaccessible)
         }
 
         let unique = Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -45,13 +38,10 @@ struct PluginScanner {
         )
     }
 
-    /// Searches vendor subfolders, but treats each plug-in bundle as one unit.
+    /// Searches standard plug-in folders and application-local Cubase/Nuendo folders.
     private func scanDirectory(
-        _ directory: URL,
-        format: PluginFormat,
-        isUser: Bool,
-        found: inout [PluginInstallation],
-        inaccessible: inout [String]
+        _ directory: URL, format: PluginFormat, isUser: Bool,
+        found: inout [PluginInstallation], inaccessible: inout [String]
     ) {
         let entries: [URL]
         do {
@@ -65,27 +55,17 @@ struct PluginScanner {
             return
         }
 
-        let expectedExtension = format.fileExtension.lowercased()
-
         for entry in entries {
-            if entry.pathExtension.lowercased() == expectedExtension {
-                if let installation = inspectBundle(at: entry, format: format, isUser: isUser) {
-                    found.append(installation)
-                }
-                // Never descend into a plug-in package's internal contents.
+            if entry.pathExtension.lowercased() == format.fileExtension.lowercased() {
+                found.append(contentsOf: inspectBundle(at: entry, format: format, isUser: isUser))
                 continue
             }
 
             do {
                 let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
                 if values.isDirectory == true && values.isPackage != true {
-                    scanDirectory(
-                        entry,
-                        format: format,
-                        isUser: isUser,
-                        found: &found,
-                        inaccessible: &inaccessible
-                    )
+                    scanDirectory(entry, format: format, isUser: isUser,
+                                  found: &found, inaccessible: &inaccessible)
                 }
             } catch {
                 inaccessible.append(entry.path)
@@ -98,7 +78,7 @@ struct PluginScanner {
         let userBase = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Audio/Plug-Ins", isDirectory: true)
 
-        return PluginFormat.allCases.flatMap { format in
+        var roots = PluginFormat.allCases.flatMap { format in
             [
                 ScanRoot(url: systemBase.appendingPathComponent(format.folderName, isDirectory: true),
                          format: format, isUser: false),
@@ -106,34 +86,91 @@ struct PluginScanner {
                          format: format, isUser: true)
             ]
         }
+
+        // Steinberg documents these application-local VST locations for Cubase/Nuendo.
+        let applicationFolders = [
+            URL(fileURLWithPath: "/Applications", isDirectory: true),
+            URL(fileURLWithPath: "/Applications/Steinberg", isDirectory: true)
+        ]
+
+        for folder in applicationFolders {
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for app in entries where app.pathExtension.lowercased() == "app" {
+                let appName = app.deletingPathExtension().lastPathComponent.lowercased()
+                guard appName.contains("cubase") || appName.contains("nuendo") else { continue }
+
+                let contents = app.appendingPathComponent("Contents", isDirectory: true)
+                roots.append(ScanRoot(
+                    url: contents.appendingPathComponent("VST3", isDirectory: true),
+                    format: .vst3, isUser: false
+                ))
+                roots.append(ScanRoot(
+                    url: contents.appendingPathComponent("VstPlugins", isDirectory: true),
+                    format: .vst2, isUser: false
+                ))
+            }
+        }
+        return roots
     }
 
-    private func inspectBundle(at url: URL, format: PluginFormat, isUser: Bool) -> PluginInstallation? {
+    /// A single VST3 bundle may expose several audio plug-in classes via moduleinfo.json.
+    private func inspectBundle(at url: URL, format: PluginFormat, isUser: Bool) -> [PluginInstallation] {
         let bundle = Bundle(url: url)
         let info = bundle?.infoDictionary ?? [:]
-
-        // Some vendors ship bundle metadata with empty display-name fields.
-        // Treat empty/whitespace-only values as missing and use the bundle filename.
-        let displayName = nonEmptyString(info["CFBundleDisplayName"])
+        let fallbackName = nonEmptyString(info["CFBundleDisplayName"])
             ?? nonEmptyString(info["CFBundleName"])
             ?? url.deletingPathExtension().lastPathComponent
+        let fallbackManufacturer = nonEmptyString(info["manufacturer"])
+        let version = nonEmptyString(info["CFBundleShortVersionString"])
+            ?? nonEmptyString(info["CFBundleVersion"])
+        let bundleIdentifier = bundle?.bundleIdentifier
+
+        if format == .vst3,
+           let audioClasses = readVST3AudioClasses(in: url),
+           !audioClasses.isEmpty {
+            return audioClasses.map { item in
+                PluginInstallation(
+                    name: item.name, format: format, path: url.path,
+                    manufacturer: item.manufacturer ?? fallbackManufacturer,
+                    version: version, bundleIdentifier: bundleIdentifier,
+                    isUserInstalled: isUser
+                )
+            }
+        }
 
         let audioComponents = info["AudioComponents"] as? [[String: Any]]
         let manufacturer = nonEmptyString(audioComponents?.first?["manufacturer"])
-            ?? nonEmptyString(info["manufacturer"])
+            ?? fallbackManufacturer
 
-        let version = nonEmptyString(info["CFBundleShortVersionString"])
-            ?? nonEmptyString(info["CFBundleVersion"])
+        return [PluginInstallation(
+            name: fallbackName, format: format, path: url.path,
+            manufacturer: manufacturer, version: version,
+            bundleIdentifier: bundleIdentifier, isUserInstalled: isUser
+        )]
+    }
 
-        return PluginInstallation(
-            name: displayName,
-            format: format,
-            path: url.path,
-            manufacturer: manufacturer,
-            version: version,
-            bundleIdentifier: bundle?.bundleIdentifier,
-            isUserInstalled: isUser
-        )
+    private func readVST3AudioClasses(in bundleURL: URL) -> [(name: String, manufacturer: String?)]? {
+        let candidates = [
+            bundleURL.appendingPathComponent("Contents/Resources/moduleinfo.json"),
+            bundleURL.appendingPathComponent("Contents/moduleinfo.json")
+        ]
+        guard let moduleURL = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }),
+              let data = try? Data(contentsOf: moduleURL),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let classes = root["Classes"] as? [[String: Any]] else { return nil }
+
+        let result = classes.compactMap { item -> (name: String, manufacturer: String?)? in
+            let category = nonEmptyString(item["Category"])?.lowercased() ?? ""
+            guard category.contains("audio module"),
+                  let name = nonEmptyString(item["Name"]) else { return nil }
+            return (name, nonEmptyString(item["Vendor"]))
+        }
+        return result.isEmpty ? nil : result
     }
 
     private func nonEmptyString(_ value: Any?) -> String? {
