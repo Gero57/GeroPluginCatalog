@@ -27,24 +27,13 @@ struct PluginScanner {
                 continue
             }
 
-            do {
-                let entries = try fileManager.contentsOfDirectory(
-                    at: root.url,
-                    includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
-                    options: [.skipsHiddenFiles]
-                )
-
-                for entry in entries where entry.pathExtension.lowercased() == root.format.fileExtension.lowercased() {
-                    guard let installation = inspectBundle(
-                        at: entry,
-                        format: root.format,
-                        isUser: root.isUser
-                    ) else { continue }
-                    found.append(installation)
-                }
-            } catch {
-                inaccessible.append(root.url.path)
-            }
+            scanDirectory(
+                root.url,
+                format: root.format,
+                isUser: root.isUser,
+                found: &found,
+                inaccessible: &inaccessible
+            )
         }
 
         let unique = Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -54,6 +43,59 @@ struct PluginScanner {
             },
             inaccessibleFolders: inaccessible
         )
+    }
+
+    /// Searches vendor subfolders, but treats each .vst3/.vst/.component
+    /// bundle as one unit and never descends into its internal contents.
+    private func scanDirectory(
+        _ directory: URL,
+        format: PluginFormat,
+        isUser: Bool,
+        found: inout [PluginInstallation],
+        inaccessible: inout [String]
+    ) {
+        let entries: [URL]
+        do {
+            entries = try fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            inaccessible.append(directory.path)
+            return
+        }
+
+        let expectedExtension = format.fileExtension.lowercased()
+
+        for entry in entries {
+            if entry.pathExtension.lowercased() == expectedExtension {
+                if let installation = inspectBundle(
+                    at: entry,
+                    format: format,
+                    isUser: isUser
+                ) {
+                    found.append(installation)
+                }
+                // A plug-in bundle is a package: do not scan its internal folders.
+                continue
+            }
+
+            do {
+                let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+                if values.isDirectory == true && values.isPackage != true {
+                    scanDirectory(
+                        entry,
+                        format: format,
+                        isUser: isUser,
+                        found: &found,
+                        inaccessible: &inaccessible
+                    )
+                }
+            } catch {
+                inaccessible.append(entry.path)
+            }
+        }
     }
 
     private func makeRoots() -> [ScanRoot] {
