@@ -3,8 +3,8 @@ import Foundation
 import UniformTypeIdentifiers
 
 @MainActor
-final class ArtworkStore: ObservableObject {
-    @Published private(set) var paths: [String: String] = [:]
+final class ArtworkStore {
+    private(set) var paths: [String: String] = [:]
 
     private let fileManager = FileManager.default
     private let folderURL: URL
