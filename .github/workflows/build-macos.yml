@@ -1,0 +1,56 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Build an Apple Silicon app bundle. GitHub's macOS runner can cross-compile arm64.
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH="$(xcode-select -p)"
+          echo "Using Xcode at: $XCODE_PATH"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build arm64 application
+        run: |
+          xcodebuild \
+            -project GeroPluginCatalog.xcodeproj \
+            -scheme GeroPluginCatalog \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package application
+        run: |
+          APP_PATH="build/Build/Products/Release/Gero Plugin Catalog.app"
+          test -d "$APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" GeroPluginCatalog-macOS-arm64.zip
+          shasum -a 256 GeroPluginCatalog-macOS-arm64.zip
+
+      - name: Upload downloadable app
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeroPluginCatalog-macOS-arm64
+          path: GeroPluginCatalog-macOS-arm64.zip
+          if-no-files-found: error
+          retention-days: 30
