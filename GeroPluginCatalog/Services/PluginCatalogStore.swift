@@ -7,8 +7,19 @@ final class PluginCatalogStore: ObservableObject {
     @Published private(set) var isScanning = false
     @Published private(set) var lastScanDate: Date?
     @Published private(set) var scanMessage = "Ready to scan"
+    @Published private(set) var artworkPaths: [String: String] = [:]
 
     private let scanner = PluginScanner()
+    private let artworkStore = ArtworkStore()
+
+    init() {
+        artworkPaths = artworkStore.paths
+    }
+
+    func chooseArtwork(for productID: String) {
+        artworkStore.chooseImage(for: productID)
+        artworkPaths = artworkStore.paths
+    }
 
     func scan() {
         guard !isScanning else { return }
