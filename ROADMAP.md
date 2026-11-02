@@ -4,14 +4,19 @@
 - [x] Repository and native SwiftUI skeleton
 - [x] Scan standard system and user plug-in folders
 - [x] Read basic bundle metadata without loading plug-ins
+- [x] Recursive scan of vendor subfolders
 - [ ] Validate scanner against the user's installed collection
-- [ ] Handle VST2 plug-ins represented as files as well as bundles
+- [ ] Investigate a small number of Acustica Audio VST3 bundles separately
 
 ## Phase 2 — Catalog experience
-- [ ] Persistent local database
-- [ ] Product grouping across VST2/VST3/AU
-- [ ] Category assignment and editable categories
-- [ ] Category browser, manufacturer browser and favorites
+- [x] Product grouping across VST2/VST3/AU (initial bundle-ID/name matching)
+- [x] Automatic first-pass category suggestions based on plug-in names
+- [x] Category browser and format filters
+- [x] Visual product grid with manufacturer and installed-format labels
+- [x] Product detail sheet showing every installed format and path
+- [ ] Persistent local database and incremental refresh
+- [ ] Editable categories and favorites
+- [ ] Manufacturer browser
 
 ## Phase 3 — Artwork
 - [ ] Optional automatic artwork lookup
