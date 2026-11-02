@@ -225,12 +225,26 @@ private struct PluginDetailSheet: View {
                 }
                 Spacer()
                 Button {
+                    Task { await store.searchArtwork(for: product) }
+                } label: {
+                    Label(store.searchingArtworkID == product.id ? "Searching…" : "Find online", systemImage: "magnifyingglass")
+                }
+                .disabled(store.searchingArtworkID != nil)
+
+                Button {
                     store.chooseArtwork(for: product.id)
                 } label: {
                     Label("Choose image…", systemImage: "photo")
                 }
                 Button("Close") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+            }
+
+            if !store.artworkSearchMessage.isEmpty {
+                Text(store.artworkSearchMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
 
             Divider()
