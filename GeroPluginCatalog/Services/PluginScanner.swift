@@ -45,8 +45,7 @@ struct PluginScanner {
         )
     }
 
-    /// Searches vendor subfolders, but treats each .vst3/.vst/.component
-    /// bundle as one unit and never descends into its internal contents.
+    /// Searches vendor subfolders, but treats each plug-in bundle as one unit.
     private func scanDirectory(
         _ directory: URL,
         format: PluginFormat,
@@ -70,14 +69,10 @@ struct PluginScanner {
 
         for entry in entries {
             if entry.pathExtension.lowercased() == expectedExtension {
-                if let installation = inspectBundle(
-                    at: entry,
-                    format: format,
-                    isUser: isUser
-                ) {
+                if let installation = inspectBundle(at: entry, format: format, isUser: isUser) {
                     found.append(installation)
                 }
-                // A plug-in bundle is a package: do not scan its internal folders.
+                // Never descend into a plug-in package's internal contents.
                 continue
             }
 
@@ -117,18 +112,18 @@ struct PluginScanner {
         let bundle = Bundle(url: url)
         let info = bundle?.infoDictionary ?? [:]
 
-        let displayName = (info["CFBundleDisplayName"] as? String)
-            ?? (info["CFBundleName"] as? String)
+        // Some vendors ship bundle metadata with empty display-name fields.
+        // Treat empty/whitespace-only values as missing and use the bundle filename.
+        let displayName = nonEmptyString(info["CFBundleDisplayName"])
+            ?? nonEmptyString(info["CFBundleName"])
             ?? url.deletingPathExtension().lastPathComponent
 
-        let manufacturer = (info["AudioComponents"] as? [[String: Any]])?
-            .first?["manufacturer"] as? String
-            ?? info["manufacturer"] as? String
+        let audioComponents = info["AudioComponents"] as? [[String: Any]]
+        let manufacturer = nonEmptyString(audioComponents?.first?["manufacturer"])
+            ?? nonEmptyString(info["manufacturer"])
 
-        let version = (info["CFBundleShortVersionString"] as? String)
-            ?? (info["CFBundleVersion"] as? String)
-
-        let bundleIdentifier = bundle?.bundleIdentifier
+        let version = nonEmptyString(info["CFBundleShortVersionString"])
+            ?? nonEmptyString(info["CFBundleVersion"])
 
         return PluginInstallation(
             name: displayName,
@@ -136,8 +131,14 @@ struct PluginScanner {
             path: url.path,
             manufacturer: manufacturer,
             version: version,
-            bundleIdentifier: bundleIdentifier,
+            bundleIdentifier: bundle?.bundleIdentifier,
             isUserInstalled: isUser
         )
+    }
+
+    private func nonEmptyString(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
