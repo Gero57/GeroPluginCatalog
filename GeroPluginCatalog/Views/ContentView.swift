@@ -8,6 +8,39 @@ struct ContentView: View {
     @State private var selectedCategory: PluginCategory?
     @State private var selectedProduct: PluginProduct?
     @State private var showingAddPlugin = false
+    @State private var showingAppearance = false
+    @AppStorage("interfaceScale") private var interfaceScale = 1.0
+    @AppStorage("interfaceTheme") private var interfaceTheme = "System"
+    @AppStorage("interfaceAccent") private var interfaceAccent = "Blue"
+
+    private var accentColor: Color {
+        switch interfaceAccent {
+        case "Purple": return .purple
+        case "Green": return .green
+        case "Orange": return .orange
+        case "Pink": return .pink
+        case "Red": return .red
+        default: return .blue
+        }
+    }
+
+    private var colorScheme: ColorScheme? {
+        switch interfaceTheme {
+        case "Light": return .light
+        case "Dark": return .dark
+        default: return nil
+        }
+    }
+
+    private var dynamicType: DynamicTypeSize {
+        switch interfaceScale {
+        case ..<0.9: return .small
+        case ..<1.05: return .medium
+        case ..<1.18: return .large
+        case ..<1.3: return .xLarge
+        default: return .xxLarge
+        }
+    }
 
     private var allProducts: [PluginProduct] {
         PluginProduct.catalog(from: store.installations, manual: store.manualPlugins)
@@ -78,10 +111,10 @@ struct ContentView: View {
                         description: Text("Run a scan or add a plug-in manually."))
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 240), spacing: 12)], spacing: 12) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190 * interfaceScale, maximum: 240 * interfaceScale), spacing: 12 * interfaceScale)], spacing: 12 * interfaceScale) {
                             ForEach(filteredProducts) { product in
                                 Button { selectedProduct = product } label: {
-                                    PluginCard(product: product, artworkPath: store.artworkPaths[product.id])
+                                    PluginCard(product: product, artworkPath: store.artworkPaths[product.id], scale: interfaceScale)
                                 }.buttonStyle(.plain)
                             }
                         }
@@ -92,6 +125,9 @@ struct ContentView: View {
                 footer
             }
         }
+        .tint(accentColor)
+        .preferredColorScheme(colorScheme)
+        .environment(\.dynamicTypeSize, dynamicType)
         .searchable(text: $searchText, prompt: "Search plug-in or manufacturer")
         .sheet(item: $selectedProduct) { product in
             PluginDetailSheet(product: product).frame(minWidth: 560, minHeight: 420)
@@ -114,6 +150,14 @@ struct ContentView: View {
             Button { showingAddPlugin = true } label: {
                 Label("Add Plug-in", systemImage: "plus")
             }.buttonStyle(.bordered)
+            Button { showingAppearance = true } label: {
+                Label("Appearance", systemImage: "paintpalette")
+            }.buttonStyle(.bordered)
+            .popover(isPresented: $showingAppearance, arrowEdge: .bottom) {
+                AppearanceSettings(theme: $interfaceTheme, accent: $interfaceAccent, scale: $interfaceScale)
+                    .padding(18)
+                    .frame(width: 300)
+            }
             Button { store.scan() } label: {
                 Label(store.isScanning ? "Scanning…" : "Scan Mac", systemImage: "arrow.clockwise")
             }.buttonStyle(.borderedProminent).disabled(store.isScanning)
@@ -134,8 +178,9 @@ struct ContentView: View {
 private struct PluginCard: View {
     let product: PluginProduct
     let artworkPath: String?
+    var scale: Double = 1.0
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8 * scale) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.10))
                 if let artworkPath, let artwork = NSImage(contentsOfFile: artworkPath) {
@@ -143,7 +188,7 @@ private struct PluginCard: View {
                 } else {
                     Image(systemName: product.category.symbol).font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
                 }
-            }.frame(height: 92)
+            }.frame(height: 92 * scale)
             VStack(alignment: .leading, spacing: 4) {
                 Text(product.name).font(.headline).lineLimit(1).foregroundStyle(.primary)
                 Text(product.manufacturer?.isEmpty == false ? product.manufacturer! : "Manufacturer not available")
@@ -160,7 +205,7 @@ private struct PluginCard: View {
                 Spacer(minLength: 0)
                 Text(product.category.rawValue).font(.caption2).foregroundStyle(.secondary)
             }
-        }.padding(9).frame(maxWidth: 240, alignment: .leading)
+        }.padding(9 * scale).frame(maxWidth: 240 * scale, alignment: .leading)
             .background(.background, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 16))
@@ -208,6 +253,80 @@ private struct PluginDetailSheet: View {
             Text("This catalog only reads plug-in information. It never loads, moves or changes plug-ins.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(22)
+    }
+}
+
+
+private struct AppearanceSettings: View {
+    @Binding var theme: String
+    @Binding var accent: String
+    @Binding var scale: Double
+
+    private let accents = ["Blue", "Purple", "Green", "Orange", "Pink", "Red"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label("Interface appearance", systemImage: "paintpalette")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Theme").font(.subheadline.weight(.semibold))
+                Picker("Theme", selection: $theme) {
+                    Text("System").tag("System")
+                    Text("Light").tag("Light")
+                    Text("Dark").tag("Dark")
+                }.pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Interface color").font(.subheadline.weight(.semibold))
+                HStack(spacing: 11) {
+                    ForEach(accents, id: \.self) { item in
+                        Button { accent = item } label: {
+                            Circle()
+                                .fill(color(for: item))
+                                .frame(width: 25, height: 25)
+                                .overlay(Circle().strokeBorder(.primary.opacity(accent == item ? 0.8 : 0), lineWidth: 2).padding(-3))
+                        }
+                        .buttonStyle(.plain)
+                        .help(item)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Interface size").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text("\(Int(scale * 100))%").monospacedDigit().foregroundStyle(.secondary)
+                }
+                Slider(value: $scale, in: 0.8...1.35, step: 0.05)
+                HStack {
+                    Text("Smaller")
+                    Spacer()
+                    Text("Larger")
+                }.font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Reset") {
+                    theme = "System"
+                    accent = "Blue"
+                    scale = 1.0
+                }
+            }
+        }
+    }
+
+    private func color(for name: String) -> Color {
+        switch name {
+        case "Purple": return .purple
+        case "Green": return .green
+        case "Orange": return .orange
+        case "Pink": return .pink
+        case "Red": return .red
+        default: return .blue
+        }
     }
 }
 
