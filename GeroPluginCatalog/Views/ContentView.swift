@@ -42,12 +42,14 @@ struct ContentView: View {
                 }
 
                 Section("Categories") {
-                    ForEach(categoryCounts, id: \.0) { category, count in
+                    ForEach(PluginCategory.allCases.filter { category in
+                        categoryCounts.contains { $0.0 == category }
+                    }, id: \.self) { category in
                         Button {
                             selectedCategory = selectedCategory == category ? nil : category
                         } label: {
                             Label(category.rawValue, systemImage: category.symbol)
-                                .badge(count)
+                                .badge(categoryCounts.first { $0.0 == category }?.1 ?? 0)
                                 .foregroundStyle(selectedCategory == category ? Color.accentColor : .primary)
                         }
                         .buttonStyle(.plain)
