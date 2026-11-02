@@ -13,7 +13,7 @@ A native macOS visual catalog for audio plug-ins (VST2, VST3 and Audio Units).
 This repository contains the first SwiftUI application skeleton and a read-only filesystem scanner. Category classification, persistent database, artwork management and the visual browser will be added incrementally.
 
 ## Build
-Open `GeroPluginCatalog.xcodeproj` in Xcode and run the `GeroPluginCatalog` scheme on macOS 14 or later.
+The GitHub Actions workflow builds an arm64 macOS app and publishes a ZIP artifact. For a local build, install XcodeGen and run `xcodegen generate` from the repository root, then open `GeroPluginCatalog.xcodeproj` in Xcode.
 
 ## Scan locations
 System:
