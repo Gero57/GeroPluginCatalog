@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: PluginCatalogStore
@@ -89,7 +90,7 @@ struct ContentView: View {
                                 Button {
                                     selectedProduct = product
                                 } label: {
-                                    PluginCard(product: product)
+                                    PluginCard(product: product, artworkPath: store.artworkPaths[product.id])
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -144,15 +145,23 @@ struct ContentView: View {
 
 private struct PluginCard: View {
     let product: PluginProduct
+    let artworkPath: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.secondary.opacity(0.10))
-                Image(systemName: product.category.symbol)
-                    .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(.secondary)
+                if let artworkPath, let artwork = NSImage(contentsOfFile: artworkPath) {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(8)
+                } else {
+                    Image(systemName: product.category.symbol)
+                        .font(.system(size: 38, weight: .light))
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(height: 112)
 
@@ -192,19 +201,34 @@ private struct PluginCard: View {
 private struct PluginDetailSheet: View {
     let product: PluginProduct
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: PluginCatalogStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Image(systemName: product.category.symbol)
-                    .font(.system(size: 34))
-                    .foregroundStyle(.secondary)
+                if let artworkPath = store.artworkPaths[product.id],
+                   let artwork = NSImage(contentsOfFile: artworkPath) {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 76, height: 64)
+                } else {
+                    Image(systemName: product.category.symbol)
+                        .font(.system(size: 34))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 76, height: 64)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(product.name).font(.title.bold())
                     Text(product.manufacturer ?? "Manufacturer not available")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button {
+                    store.chooseArtwork(for: product.id)
+                } label: {
+                    Label("Choose image…", systemImage: "photo")
+                }
                 Button("Close") { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
