@@ -35,7 +35,9 @@ enum PluginCategory: String, CaseIterable, Identifiable, Codable {
         let value = name.lowercased()
         if contains(value, ["delay", "echo", "tape echo", "slap"]) { return .delay }
         if contains(value, ["reverb", "room", "plate", "hall", "spring", "space"]) { return .reverb }
-        if contains(value, ["equalizer", "equaliser", "\beq\b", "pro-q"]) { return .equalizer }
+        if contains(value, ["equalizer", "equaliser", "pro-q"]) || value.hasPrefix("eq ") || value.hasSuffix(" eq") {
+            return .equalizer
+        }
         if contains(value, ["limiter", "l2", "l3", "maximizer", "maximiser"]) { return .limiter }
         if contains(value, ["compressor", "comp", "1176", "la-2a", "bus comp"]) { return .compressor }
         if contains(value, ["chorus", "flanger", "phaser", "tremolo", "vibrato", "modulation"]) { return .modulation }
