@@ -78,13 +78,15 @@ struct ContentView: View {
                         description: Text("Run a scan or add a plug-in manually."))
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 240), spacing: 12)], spacing: 12) {
                             ForEach(filteredProducts) { product in
                                 Button { selectedProduct = product } label: {
                                     PluginCard(product: product, artworkPath: store.artworkPaths[product.id])
                                 }.buttonStyle(.plain)
                             }
-                        }.padding(20)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
                     }
                 }
                 footer
@@ -133,7 +135,7 @@ private struct PluginCard: View {
     let product: PluginProduct
     let artworkPath: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.10))
                 if let artworkPath, let artwork = NSImage(contentsOfFile: artworkPath) {
@@ -141,7 +143,7 @@ private struct PluginCard: View {
                 } else {
                     Image(systemName: product.category.symbol).font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
                 }
-            }.frame(height: 112)
+            }.frame(height: 92)
             VStack(alignment: .leading, spacing: 4) {
                 Text(product.name).font(.headline).lineLimit(1).foregroundStyle(.primary)
                 Text(product.manufacturer?.isEmpty == false ? product.manufacturer! : "Manufacturer not available")
@@ -158,7 +160,7 @@ private struct PluginCard: View {
                 Spacer(minLength: 0)
                 Text(product.category.rawValue).font(.caption2).foregroundStyle(.secondary)
             }
-        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(9).frame(maxWidth: 240, alignment: .leading)
             .background(.background, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 16))

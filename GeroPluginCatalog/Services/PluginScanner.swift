@@ -43,33 +43,24 @@ struct PluginScanner {
         _ directory: URL, format: PluginFormat, isUser: Bool,
         found: inout [PluginInstallation], inaccessible: inout [String]
     ) {
-        let entries: [URL]
-        do {
-            entries = try fileManager.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
+        // FileManager's enumerator avoids repeatedly opening each directory and
+        // asking for resource values. Package descendants are skipped, so a
+        // .vst3/.vst/.component bundle is inspected once as a single unit.
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
             inaccessible.append(directory.path)
             return
         }
 
-        for entry in entries {
-            if entry.pathExtension.lowercased() == format.fileExtension.lowercased() {
-                found.append(contentsOf: inspectBundle(at: entry, format: format, isUser: isUser))
+        while let entry = enumerator.nextObject() as? URL {
+            guard entry.pathExtension.caseInsensitiveCompare(format.fileExtension) == .orderedSame else {
                 continue
             }
-
-            do {
-                let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-                if values.isDirectory == true && values.isPackage != true {
-                    scanDirectory(entry, format: format, isUser: isUser,
-                                  found: &found, inaccessible: &inaccessible)
-                }
-            } catch {
-                inaccessible.append(entry.path)
-            }
+            found.append(contentsOf: inspectBundle(at: entry, format: format, isUser: isUser))
+            enumerator.skipDescendants()
         }
     }
 
