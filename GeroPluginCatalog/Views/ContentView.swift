@@ -118,16 +118,25 @@ struct ContentView: View {
                         let minimumWidth = 190 * interfaceScale
                         let columnCount = max(1, Int((gridWidth + spacing) / (minimumWidth + spacing)))
                         let cardWidth = (gridWidth - spacing * Double(columnCount - 1)) / Double(columnCount)
-                        let columns = Array(repeating: GridItem(.fixed(cardWidth), spacing: spacing, alignment: .top), count: columnCount)
+                        let productRows = stride(from: 0, to: filteredProducts.count, by: columnCount).map { start in
+                            Array(filteredProducts[start..<min(start + columnCount, filteredProducts.count)])
+                        }
 
                         ScrollView {
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
-                                ForEach(filteredProducts) { product in
-                                    Button { selectedProduct = product } label: {
-                                        PluginCard(product: product, artworkPath: store.artworkPaths[product.id], scale: interfaceScale)
-                                            .frame(width: cardWidth, height: 178 * interfaceScale, alignment: .topLeading)
+                            LazyVStack(alignment: .leading, spacing: spacing) {
+                                ForEach(Array(productRows.enumerated()), id: \.offset) { _, row in
+                                    HStack(alignment: .top, spacing: spacing) {
+                                        ForEach(row) { product in
+                                            Button { selectedProduct = product } label: {
+                                                PluginCard(product: product, artworkPath: store.artworkPaths[product.id], scale: interfaceScale)
+                                                    .frame(width: cardWidth, height: 178 * interfaceScale, alignment: .topLeading)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                        if row.count < columnCount {
+                                            Spacer(minLength: 0)
+                                        }
                                     }
-                                    .buttonStyle(.plain)
                                 }
                             }
                             .frame(width: gridWidth, alignment: .leading)
@@ -246,8 +255,23 @@ private struct PluginDetailSheet: View {
                     if let manualFormat = product.manualFormat { Text("Manual catalog entry · \(manualFormat)").font(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer()
-                Button { store.chooseArtwork(for: product.id) } label: { Label("Choose image…", systemImage: "photo") }
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                VStack(alignment: .trailing, spacing: 5) {
+                    Button {
+                        Task { await store.searchArtwork(for: product) }
+                    } label: {
+                        Label(store.searchingArtworkID == product.id ? "Searching…" : "Find image online", systemImage: "globe")
+                    }
+                    .disabled(store.searchingArtworkID != nil)
+                    Button { store.chooseArtwork(for: product.id) } label: {
+                        Label("Choose image…", systemImage: "photo")
+                    }
+                    Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                }
+            }
+            if store.searchingArtworkID == product.id || !store.artworkSearchMessage.isEmpty {
+                Text(store.artworkSearchMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Divider()
             Text(product.installations.isEmpty ? "Catalog entry" : "Installed formats and locations").font(.headline)
