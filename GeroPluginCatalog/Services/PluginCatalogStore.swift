@@ -169,7 +169,7 @@ final class PluginCatalogStore: ObservableObject {
 
         var categories: [PluginCategory: Int] = [:]
         var formats: [PluginFormat: Int] = [:]
-        for product in newProducts {
+        for product in products {
             categories[product.category, default: 0] += 1
             for format in Set(product.installations.map(\.format)) {
                 formats[format, default: 0] += 1
