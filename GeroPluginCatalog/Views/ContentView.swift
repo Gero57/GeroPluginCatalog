@@ -129,7 +129,7 @@ struct ContentView: View {
                                         ForEach(row) { product in
                                             Button { selectedProduct = product } label: {
                                                 PluginCard(product: product, artworkPath: store.artworkPaths[product.id], scale: interfaceScale)
-                                                    .frame(width: cardWidth, height: 178 * interfaceScale, alignment: .topLeading)
+                                                    .frame(width: cardWidth, height: 236 * interfaceScale, alignment: .topLeading)
                                             }
                                             .buttonStyle(.plain)
                                         }
@@ -211,11 +211,21 @@ private struct PluginCard: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.10))
                 if let artwork = ArtworkImageCache.image(at: artworkPath) {
-                    Image(nsImage: artwork).resizable().scaledToFit().padding(8)
+                    GeometryReader { imageArea in
+                        Image(nsImage: artwork)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: imageArea.size.width, height: imageArea.size.height)
+                            .clipped()
+                    }
                 } else {
-                    Image(systemName: product.category.symbol).font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
+                    Image(systemName: product.category.symbol)
+                        .font(.system(size: 42 * scale, weight: .light))
+                        .foregroundStyle(.secondary)
                 }
-            }.frame(height: 92 * scale)
+            }
+            .frame(height: 146 * scale)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 4) {
                 Text(product.name).font(.headline).lineLimit(1).foregroundStyle(.primary)
                 Text(product.manufacturer?.isEmpty == false ? product.manufacturer! : "Manufacturer not available")
