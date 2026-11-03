@@ -173,7 +173,9 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button { store.importCubaseReport() } label: {\n                Label("Import Cubase Report", systemImage: "doc.text.magnifyingglass")\n            }.buttonStyle(.bordered)\n            Button { showingAddPlugin = true } label: {
+            Button { store.importCubaseReport() } label: {
+                Label("Import Cubase Report", systemImage: "doc.text.magnifyingglass")
+            }.buttonStyle(.bordered)\n            Button { showingAddPlugin = true } label: {
                 Label("Add Plug-in", systemImage: "plus")
             }.buttonStyle(.bordered)
             Button { showingAppearance = true } label: {
