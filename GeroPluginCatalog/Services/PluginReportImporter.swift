@@ -59,7 +59,7 @@ struct PluginReportImporter {
             let value = ns.substring(with: NSRange(location: start, length: match.range.location - start))
                 .trimmingCharacters(in: .whitespaces)
             if !value.isEmpty { fields.append(value) }
-            start = NSRangeGetMaxRange(match.range)
+            start = match.range.location + match.range.length
         }
         let tail = ns.substring(from: start).trimmingCharacters(in: .whitespaces)
         if !tail.isEmpty { fields.append(tail) }
