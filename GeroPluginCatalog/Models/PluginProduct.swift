@@ -9,6 +9,7 @@ struct PluginProduct: Identifiable, Hashable {
     var installations: [PluginInstallation]
     var artworkPath: String?
     var manualFormat: String? = nil
+    var manualEntryIDs: [String] = []
 
     static func catalog(from installations: [PluginInstallation], manual: [ManualPlugin] = []) -> [PluginProduct] {
         // First group by the normalized plug-in name. Manufacturer metadata is
@@ -80,6 +81,7 @@ struct PluginProduct: Identifiable, Hashable {
                 scanned[index].manualFormat = uniqueFormats(
                     [scanned[index].manualFormat].compactMap { $0 } + formats
                 ).joined(separator: " · ")
+                scanned[index].manualEntryIDs = entries.map(\.id)
                 scanned[index].category = first.category
             } else {
                 manualOnly.append(PluginProduct(
@@ -89,7 +91,8 @@ struct PluginProduct: Identifiable, Hashable {
                     category: first.category,
                     installations: [],
                     artworkPath: nil,
-                    manualFormat: formats.joined(separator: " · ")
+                    manualFormat: formats.joined(separator: " · "),
+                    manualEntryIDs: entries.map(\.id)
                 ))
             }
         }
@@ -101,7 +104,7 @@ struct PluginProduct: Identifiable, Hashable {
 
     private static func uniqueFormats(_ values: [String]) -> [String] {
         var seen = Set<String>()
-        return values.filter {
+        return values.flatMap { $0.components(separatedBy: " · ") }.filter {
             let key = normalize($0)
             guard !key.isEmpty, !seen.contains(key) else { return false }
             seen.insert(key)

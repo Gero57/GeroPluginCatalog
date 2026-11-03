@@ -38,6 +38,15 @@ final class PluginCatalogStore: ObservableObject {
         scanMessage = "Manual plug-in added"
     }
 
+    func deleteManualPlugins(ids: [String]) {
+        guard !ids.isEmpty else { return }
+        let deleting = Set(ids)
+        manualPlugins.removeAll { deleting.contains($0.id) }
+        saveManualPlugins()
+        rebuildCatalog()
+        scanMessage = "Manual catalog entry deleted"
+    }
+
     func chooseArtwork(for productID: String) {
         artworkStore.chooseImage(for: productID)
         artworkPaths = artworkStore.paths

@@ -152,7 +152,10 @@ struct ContentView: View {
         .environment(\.dynamicTypeSize, dynamicType)
         .searchable(text: $searchText, prompt: "Search plug-in or manufacturer")
         .sheet(item: $selectedProduct) { product in
-            PluginDetailSheet(product: product).frame(minWidth: 560, minHeight: 420)
+            PluginDetailSheet(product: product, onDeleteManual: {
+                store.deleteManualPlugins(ids: product.manualEntryIDs)
+                selectedProduct = nil
+            }).frame(minWidth: 560, minHeight: 420)
         }
         .sheet(isPresented: $showingAddPlugin) {
             AddPluginSheet { name, maker, category, format in
@@ -239,6 +242,7 @@ private struct PluginCard: View {
 
 private struct PluginDetailSheet: View {
     let product: PluginProduct
+    let onDeleteManual: () -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: PluginCatalogStore
     var body: some View {
@@ -264,6 +268,14 @@ private struct PluginDetailSheet: View {
                     .disabled(store.searchingArtworkID != nil)
                     Button { store.chooseArtwork(for: product.id) } label: {
                         Label("Choose image…", systemImage: "photo")
+                    }
+                    if !product.manualEntryIDs.isEmpty {
+                        Button(role: .destructive) {
+                            onDeleteManual()
+                            dismiss()
+                        } label: {
+                            Label("Delete manual entry", systemImage: "trash")
+                        }
                     }
                     Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
                 }
@@ -363,7 +375,7 @@ private struct AddPluginSheet: View {
     @State private var manufacturer = "Steinberg"
     @State private var category: PluginCategory = .reverb
     @State private var format = "Cubase Internal"
-    private let formats = ["Cubase Internal", "VST3", "VST2", "AU", "Other"]
+    private let formats = ["Cubase Internal", "VST3", "AU", "VST3 · AU", "VST2", "Other"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
