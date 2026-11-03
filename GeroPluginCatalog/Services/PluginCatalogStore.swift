@@ -140,7 +140,14 @@ final class PluginCatalogStore: ObservableObject {
     private func loadCategoryOverrides() {
         guard let data = try? Data(contentsOf: categoryOverridesURL),
               let saved = try? JSONDecoder().decode([String: PluginCategory].self, from: data) else { return }
-        categoryOverrides = saved
+        // Migrate older manufacturer|name keys to the new name-only identity.
+        var migrated: [String: PluginCategory] = [:]
+        for (key, category) in saved {
+            let name = key.contains("|") ? (key.split(separator: "|").last.map(String.init) ?? key) : key
+            migrated[PluginProduct.categoryOverrideKey(name: name, manufacturer: nil)] = category
+        }
+        categoryOverrides = migrated
+        if migrated != saved { saveCategoryOverrides() }
     }
 
     private func saveCategoryOverrides() {

@@ -1,7 +1,7 @@
 import Foundation
 
 struct PluginProduct: Identifiable, Hashable {
-    /// One visual product groups matching plug-in names across VST2, VST3 and AU.
+    /// A single visual card per normalized plug-in name, with all installed formats attached.
     let id: String
     var name: String
     var manufacturer: String?
@@ -12,80 +12,67 @@ struct PluginProduct: Identifiable, Hashable {
     var manualEntryIDs: [String] = []
 
     static func catalog(from installations: [PluginInstallation], manual: [ManualPlugin] = []) -> [PluginProduct] {
-        // First group by the normalized plug-in name. Manufacturer metadata is
-        // sometimes missing or spelled differently between AU and VST bundles.
+        // The plug-in name is the primary identity. AU/VST metadata often differs
+        // even when both bundles are the same product, so vendor and bundle IDs
+        // must never create separate cards for an identical normalized name.
         let byName = Dictionary(grouping: installations) { normalize($0.name) }
         var scanned: [PluginProduct] = []
 
-        for (_, sameNameItems) in byName {
-            let knownMakers = Set(sameNameItems.compactMap { item -> String? in
-                let maker = normalize(item.manufacturer ?? "")
-                return maker.isEmpty ? nil : maker
-            })
+        for (nameKey, items) in byName {
+            let sorted = items.sorted {
+                if $0.format != $1.format { return $0.format.rawValue < $1.format.rawValue }
+                return $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
+            }
+            guard let primary = sorted.first else { continue }
 
-            // If there is only one known manufacturer, merge entries with missing
-            // manufacturer metadata into that product. If multiple makers use the
-            // same plug-in name, keep them as separate products.
-            let makerGroups: [[PluginInstallation]]
-            if knownMakers.count <= 1 {
-                makerGroups = [sameNameItems]
-            } else {
-                makerGroups = Array(Dictionary(grouping: sameNameItems) {
-                    normalize($0.manufacturer ?? "")
-                }.values)
+            // Prefer a non-empty manufacturer, then the most frequently reported one.
+            let makerCounts = Dictionary(grouping: sorted.compactMap { item -> String? in
+                guard let maker = item.manufacturer?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !maker.isEmpty else { return nil }
+                return maker
+            }, by: normalize)
+            let manufacturer = makerCounts.values
+                .sorted { $0.count > $1.count }
+                .first?.first
+
+            // Remove repeated records pointing to the same format and bundle path.
+            var seenInstallations = Set<String>()
+            let uniqueInstallations = sorted.filter { item in
+                let key = "\(item.format.rawValue)|\(item.path.standardizedFileURL.path)|\(normalize(item.name))"
+                return seenInstallations.insert(key).inserted
             }
 
-            for items in makerGroups {
-                let sorted = items.sorted { $0.format.rawValue < $1.format.rawValue }
-                guard let primary = sorted.first else { continue }
-                let normalizedName = normalize(primary.name)
-                let preferred = items.first(where: { $0.format == .vst3 && !($0.bundleIdentifier ?? "").isEmpty })
-                    ?? items.first(where: { !($0.bundleIdentifier ?? "").isEmpty })
-                let productID: String
-                if let bundleID = preferred?.bundleIdentifier {
-                    productID = "bundle:\(bundleID.lowercased())|class:\(normalizedName)"
-                } else {
-                    productID = "name:\(normalize(primary.manufacturer ?? ""))|\(normalizedName)"
-                }
-
-                scanned.append(PluginProduct(
-                    id: productID,
-                    name: primary.name,
-                    manufacturer: sorted.compactMap(\.manufacturer).first,
-                    category: PluginCategory.guess(from: primary.name),
-                    installations: sorted,
-                    artworkPath: nil
-                ))
-            }
+            scanned.append(PluginProduct(
+                id: "plugin:\(nameKey)",
+                name: primary.name,
+                manufacturer: manufacturer ?? sorted.compactMap(\.manufacturer).first,
+                category: PluginCategory.guess(from: primary.name),
+                installations: uniqueInstallations,
+                artworkPath: nil
+            ))
         }
 
-        // Collapse duplicate manual records (e.g. Roomworks / RoomWorks) and
-        // attach them to a scanned product when the identity is unambiguous.
-        let manualGroups = Dictionary(grouping: manual) {
-            "\(normalize($0.manufacturer))|\(normalize($0.name))"
-        }
+        // Manual entries are also grouped by name and attached to the scanned card
+        // whenever one exists, regardless of differences in vendor metadata.
+        let manualGroups = Dictionary(grouping: manual) { normalize($0.name) }
         var manualOnly: [PluginProduct] = []
 
-        for (_, entries) in manualGroups {
+        for (nameKey, entries) in manualGroups {
             guard let first = entries.first else { continue }
             let formats = uniqueFormats(entries.map(\.format))
-            let nameKey = normalize(first.name)
-            let makerKey = normalize(first.manufacturer)
-            let candidates = scanned.indices.filter { index in
-                guard normalize(scanned[index].name) == nameKey else { return false }
-                let scannedMaker = normalize(scanned[index].manufacturer ?? "")
-                return makerKey.isEmpty || scannedMaker.isEmpty || scannedMaker == makerKey
-            }
-
-            if candidates.count == 1, let index = candidates.first {
+            if let index = scanned.firstIndex(where: { normalize($0.name) == nameKey }) {
                 scanned[index].manualFormat = uniqueFormats(
                     [scanned[index].manualFormat].compactMap { $0 } + formats
                 ).joined(separator: " · ")
                 scanned[index].manualEntryIDs = entries.map(\.id)
+                // A manually selected category is kept on this combined card.
                 scanned[index].category = first.category
+                if scanned[index].manufacturer?.isEmpty != false {
+                    scanned[index].manufacturer = first.manufacturer
+                }
             } else {
                 manualOnly.append(PluginProduct(
-                    id: first.id,
+                    id: "plugin:\(nameKey)",
                     name: first.name,
                     manufacturer: first.manufacturer,
                     category: first.category,
@@ -97,33 +84,7 @@ struct PluginProduct: Identifiable, Hashable {
             }
         }
 
-        // Final safety pass: collapse products whose display names and vendors
-        // normalize to the same identity. This catches duplicated bundle records
-        // and metadata differences that slipped through the first grouping pass.
-        var deduplicated: [PluginProduct] = []
-        for product in scanned {
-            let nameKey = normalize(product.name)
-            let makerKey = normalize(product.manufacturer ?? "")
-            if let index = deduplicated.firstIndex(where: {
-                normalize($0.name) == nameKey &&
-                (normalize($0.manufacturer ?? "").isEmpty || makerKey.isEmpty ||
-                 normalize($0.manufacturer ?? "") == makerKey)
-            }) {
-                deduplicated[index].installations = Array(Set(
-                    deduplicated[index].installations + product.installations
-                )).sorted { $0.format.rawValue < $1.format.rawValue }
-                if deduplicated[index].manufacturer?.isEmpty != false {
-                    deduplicated[index].manufacturer = product.manufacturer
-                }
-                if deduplicated[index].artworkPath == nil {
-                    deduplicated[index].artworkPath = product.artworkPath
-                }
-            } else {
-                deduplicated.append(product)
-            }
-        }
-
-        return (deduplicated + manualOnly).sorted {
+        return (scanned + manualOnly).sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
@@ -139,7 +100,8 @@ struct PluginProduct: Identifiable, Hashable {
     }
 
     static func categoryOverrideKey(name: String, manufacturer: String?) -> String {
-        "\(normalize(manufacturer ?? ""))|\(normalize(name))"
+        // Key by product name alone so category corrections survive vendor metadata changes.
+        normalize(name)
     }
 
     private static func normalize(_ value: String) -> String {
