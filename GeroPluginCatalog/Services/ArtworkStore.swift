@@ -72,15 +72,20 @@ final class ArtworkStore {
             guard let html = String(data: searchData, encoding: .utf8) else {
                 return "The search engine returned an unreadable page"
             }
-            let pattern = #"<a[^>]+class=["'][^"']*result__a[^"']*["'][^>]+href=["']([^"']+)["']"#
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            // Match result anchors independently of HTML attribute order.
+            let anchorPattern = #"<a\b(?=[^>]*class=["'][^"']*result__a[^"']*["'])[^>]*>"#
+            guard let anchorRegex = try? NSRegularExpression(pattern: anchorPattern, options: [.caseInsensitive]),
+                  let hrefRegex = try? NSRegularExpression(pattern: #"href=["']([^"']+)["']"#, options: [.caseInsensitive]) else {
                 return "Could not read search results"
             }
-            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            let anchors = anchorRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
             var pages: [URL] = []
-            for match in matches {
-                guard let range = Range(match.range(at: 1), in: html) else { continue }
-                let raw = String(html[range])
+            for anchor in anchors {
+                guard let anchorRange = Range(anchor.range, in: html) else { continue }
+                let tag = String(html[anchorRange])
+                guard let href = hrefRegex.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)),
+                      let range = Range(href.range(at: 1), in: tag) else { continue }
+                let raw = String(tag[range])
                 let destination: String
                 if let components = URLComponents(string: raw),
                    let redirect = components.queryItems?.first(where: { $0.name == "uddg" })?.value {
