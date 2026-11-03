@@ -22,8 +22,6 @@ struct PluginReportImporter {
             }
             guard let format = section else { continue }
 
-            let fields = trimmed.components(separatedBy: try! NSRegularExpression(pattern: #"\s{2,}"#)
-                .replacementStringPlaceholder)
             // Split on repeated spaces while retaining paths that may themselves contain spaces.
             let columns = splitColumns(trimmed)
             guard columns.count >= 4, let path = columns.last, path.hasPrefix("/") else { continue }
