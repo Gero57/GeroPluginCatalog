@@ -151,6 +151,7 @@ struct ContentView: View {
         .preferredColorScheme(colorScheme)
         .environment(\.dynamicTypeSize, dynamicType)
         .searchable(text: $searchText, prompt: "Search plug-in or manufacturer")
+        .task { store.scanOnLaunchIfNeeded() }
         .sheet(item: $selectedProduct) { product in
             PluginDetailSheet(product: product, onDeleteManual: {
                 store.deleteManualPlugins(ids: product.manualEntryIDs)
@@ -158,8 +159,8 @@ struct ContentView: View {
             }).frame(minWidth: 560, minHeight: 420)
         }
         .sheet(isPresented: $showingAddPlugin) {
-            AddPluginSheet { name, maker, category, format in
-                store.addManualPlugin(name: name, manufacturer: maker, category: category, format: format)
+            AddPluginSheet(initialCategory: selectedCategory ?? .reverb) { name, maker, category in
+                store.addManualPlugin(name: name, manufacturer: maker, category: category, format: "Manual")
             }
         }
     }
@@ -224,8 +225,10 @@ private struct PluginCard: View {
                 ForEach(Array(Set(product.installations.map(\.format))).sorted { $0.rawValue < $1.rawValue }) { format in
                     Text(format.rawValue).font(.caption2.weight(.semibold)).padding(.horizontal, 7).padding(.vertical, 4).background(.quaternary, in: Capsule())
                 }
-                if let manualFormat = product.manualFormat {
+                if let manualFormat = product.manualFormat, manualFormat != "Manual" {
                     Text(manualFormat).font(.caption2.weight(.semibold)).padding(.horizontal, 7).padding(.vertical, 4).background(.quaternary, in: Capsule())
+                    Text("Manual").font(.caption2).foregroundStyle(.secondary)
+                } else if !product.manualEntryIDs.isEmpty {
                     Text("Manual").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
@@ -256,7 +259,8 @@ private struct PluginDetailSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(product.name).font(.title.bold())
                     Text(product.manufacturer?.isEmpty == false ? product.manufacturer! : "Manufacturer not available").foregroundStyle(.secondary)
-                    if let manualFormat = product.manualFormat { Text("Manual catalog entry · \(manualFormat)").font(.caption).foregroundStyle(.secondary) }
+                    if !product.manualEntryIDs.isEmpty { Text("Manual catalog entry").font(.caption).foregroundStyle(.secondary) }
+                    else if let manualFormat = product.manualFormat { Text("Manual catalog entry · \(manualFormat)").font(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 5) {
@@ -289,7 +293,9 @@ private struct PluginDetailSheet: View {
             Text(product.installations.isEmpty ? "Catalog entry" : "Installed formats and locations").font(.headline)
             if product.installations.isEmpty {
                 Text("This is a visual catalog entry. It does not represent an installed plug-in.").foregroundStyle(.secondary)
-                Text("Format: \(product.manualFormat ?? "Not specified")").foregroundStyle(.secondary)
+                if product.manualFormat != "Manual" {
+                    Text("Format: \(product.manualFormat ?? "Not specified")").foregroundStyle(.secondary)
+                }
             } else {
                 List(product.installations) { installation in
                     VStack(alignment: .leading, spacing: 5) {
@@ -370,17 +376,22 @@ private struct AppearanceSettings: View {
 
 private struct AddPluginSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let onSave: (String, String, PluginCategory, String) -> Void
+    let initialCategory: PluginCategory
+    let onSave: (String, String, PluginCategory) -> Void
     @State private var name = ""
     @State private var manufacturer = "Steinberg"
-    @State private var category: PluginCategory = .reverb
-    @State private var format = "Cubase Internal"
-    private let formats = ["Cubase Internal", "VST3", "AU", "VST3 · AU", "VST2", "Other"]
+    @State private var category: PluginCategory
+
+    init(initialCategory: PluginCategory, onSave: @escaping (String, String, PluginCategory) -> Void) {
+        self.initialCategory = initialCategory
+        self.onSave = onSave
+        _category = State(initialValue: initialCategory)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Plug-in").font(.title.bold())
-            Text("Create a visual catalog entry for a plug-in that the automatic scan did not find.")
+            Text("Add a visual catalog entry to the selected category. It will not install or modify any plug-in.")
                 .foregroundStyle(.secondary)
             Form {
                 TextField("Plug-in name", text: $name)
@@ -388,22 +399,15 @@ private struct AddPluginSheet: View {
                 Picker("Category", selection: $category) {
                     ForEach(PluginCategory.allCases, id: \.self) { item in Text(item.rawValue).tag(item) }
                 }
-                Picker("Plug-in format", selection: $format) {
-                    ForEach(formats, id: \.self) { item in Text(item).tag(item) }
-                }
-                .pickerStyle(.menu)
-                Text("Choose VST3, AU, VST3 · AU for both, or another format.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Add Plug-in") {
-                    onSave(name, manufacturer, category, format)
+                    onSave(name, manufacturer, category)
                     dismiss()
                 }.buttonStyle(.borderedProminent).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(24).frame(width: 460, height: 420)
+        }.padding(24).frame(width: 460, height: 330)
     }
 }

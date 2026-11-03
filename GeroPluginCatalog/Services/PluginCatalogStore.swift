@@ -9,6 +9,7 @@ final class PluginCatalogStore: ObservableObject {
     @Published private(set) var categoryCounts: [PluginCategory: Int] = [:]
     @Published private(set) var formatCounts: [PluginFormat: Int] = [:]
     @Published private(set) var isScanning = false
+    private var didStartLaunchScan = false
     @Published private(set) var lastScanDate: Date?
     @Published private(set) var scanMessage = "Ready to scan"
     @Published private(set) var artworkPaths: [String: String] = [:]
@@ -61,6 +62,12 @@ final class PluginCatalogStore: ObservableObject {
         artworkPaths = artworkStore.paths
         artworkSearchMessage = message
         searchingArtworkID = nil
+    }
+
+    func scanOnLaunchIfNeeded() {
+        guard !didStartLaunchScan else { return }
+        didStartLaunchScan = true
+        scan()
     }
 
     func scan() {
