@@ -63,7 +63,7 @@ struct ContentView: View {
                 || product.installations.contains { $0.path.localizedCaseInsensitiveContains(searchText) }
             let matchesFormat = selectedFormat == nil
                 || product.installations.contains { $0.format == selectedFormat }
-                || product.manualFormat == selectedFormat?.rawValue
+                || (product.manualFormat?.components(separatedBy: " · ").contains(selectedFormat?.rawValue ?? "") ?? false)
             let matchesCategory = selectedCategory == nil || product.category == selectedCategory
             return matchesSearch && matchesFormat && matchesCategory
         }

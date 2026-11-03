@@ -11,52 +11,107 @@ struct PluginProduct: Identifiable, Hashable {
     var manualFormat: String? = nil
 
     static func catalog(from installations: [PluginInstallation], manual: [ManualPlugin] = []) -> [PluginProduct] {
-        // Use manufacturer + normalized class name as the cross-format identity.
-        // Bundle identifiers often differ between AU and VST3 versions of the same product.
-        let groups = Dictionary(grouping: installations) { installation in
-            let normalizedName = normalize(installation.name)
-            let normalizedMaker = normalize(installation.manufacturer ?? "")
-            return "name:\(normalizedMaker)|\(normalizedName)"
-        }
+        // First group by the normalized plug-in name. Manufacturer metadata is
+        // sometimes missing or spelled differently between AU and VST bundles.
+        let byName = Dictionary(grouping: installations) { normalize($0.name) }
+        var scanned: [PluginProduct] = []
 
-        let scanned = groups.map { _, items in
-            let sorted = items.sorted { $0.format.rawValue < $1.format.rawValue }
-            let primary = sorted[0]
-            let normalizedName = normalize(primary.name)
+        for (_, sameNameItems) in byName {
+            let knownMakers = Set(sameNameItems.compactMap { item -> String? in
+                let maker = normalize(item.manufacturer ?? "")
+                return maker.isEmpty ? nil : maker
+            })
 
-            // Keep the previous VST3-based artwork key where possible, so existing
-            // artwork selections continue to resolve after formats are consolidated.
-            let preferred = items.first(where: { $0.format == .vst3 && !($0.bundleIdentifier ?? "").isEmpty })
-                ?? items.first(where: { !($0.bundleIdentifier ?? "").isEmpty })
-            let productID: String
-            if let bundleID = preferred?.bundleIdentifier {
-                productID = "bundle:\(bundleID.lowercased())|class:\(normalizedName)"
+            // If there is only one known manufacturer, merge entries with missing
+            // manufacturer metadata into that product. If multiple makers use the
+            // same plug-in name, keep them as separate products.
+            let makerGroups: [[PluginInstallation]]
+            if knownMakers.count <= 1 {
+                makerGroups = [sameNameItems]
             } else {
-                productID = "name:\(normalize(primary.manufacturer ?? ""))|\(normalizedName)"
+                makerGroups = Array(Dictionary(grouping: sameNameItems) {
+                    normalize($0.manufacturer ?? "")
+                }.values)
             }
 
-            return PluginProduct(
-                id: productID,
-                name: primary.name,
-                manufacturer: sorted.compactMap(\.manufacturer).first,
-                category: PluginCategory.guess(from: primary.name),
-                installations: sorted,
-                artworkPath: nil
-            )
+            for items in makerGroups {
+                let sorted = items.sorted { $0.format.rawValue < $1.format.rawValue }
+                guard let primary = sorted.first else { continue }
+                let normalizedName = normalize(primary.name)
+                let preferred = items.first(where: { $0.format == .vst3 && !($0.bundleIdentifier ?? "").isEmpty })
+                    ?? items.first(where: { !($0.bundleIdentifier ?? "").isEmpty })
+                let productID: String
+                if let bundleID = preferred?.bundleIdentifier {
+                    productID = "bundle:\(bundleID.lowercased())|class:\(normalizedName)"
+                } else {
+                    productID = "name:\(normalize(primary.manufacturer ?? ""))|\(normalizedName)"
+                }
+
+                scanned.append(PluginProduct(
+                    id: productID,
+                    name: primary.name,
+                    manufacturer: sorted.compactMap(\.manufacturer).first,
+                    category: PluginCategory.guess(from: primary.name),
+                    installations: sorted,
+                    artworkPath: nil
+                ))
+            }
         }
 
-        let manuallyAdded = manual.map { item in
-            PluginProduct(id: item.id, name: item.name, manufacturer: item.manufacturer,
-                category: item.category, installations: [], artworkPath: nil, manualFormat: item.format)
+        // Collapse duplicate manual records (e.g. Roomworks / RoomWorks) and
+        // attach them to a scanned product when the identity is unambiguous.
+        let manualGroups = Dictionary(grouping: manual) {
+            "\(normalize($0.manufacturer))|\(normalize($0.name))"
         }
-        return (scanned + manuallyAdded).sorted {
+        var manualOnly: [PluginProduct] = []
+
+        for (_, entries) in manualGroups {
+            guard let first = entries.first else { continue }
+            let formats = uniqueFormats(entries.map(\.format))
+            let nameKey = normalize(first.name)
+            let makerKey = normalize(first.manufacturer)
+            let candidates = scanned.indices.filter { index in
+                guard normalize(scanned[index].name) == nameKey else { return false }
+                let scannedMaker = normalize(scanned[index].manufacturer ?? "")
+                return makerKey.isEmpty || scannedMaker.isEmpty || scannedMaker == makerKey
+            }
+
+            if candidates.count == 1, let index = candidates.first {
+                scanned[index].manualFormat = uniqueFormats(
+                    [scanned[index].manualFormat].compactMap { $0 } + formats
+                ).joined(separator: " · ")
+                scanned[index].category = first.category
+            } else {
+                manualOnly.append(PluginProduct(
+                    id: first.id,
+                    name: first.name,
+                    manufacturer: first.manufacturer,
+                    category: first.category,
+                    installations: [],
+                    artworkPath: nil,
+                    manualFormat: formats.joined(separator: " · ")
+                ))
+            }
+        }
+
+        return (scanned + manualOnly).sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
 
+    private static func uniqueFormats(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter {
+            let key = normalize($0)
+            guard !key.isEmpty, !seen.contains(key) else { return false }
+            seen.insert(key)
+            return true
+        }
+    }
+
     private static func normalize(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: #"\\s+"#, with: " ", options: .regularExpression)
-            .lowercased()
+        let folded = value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        let alphanumeric = folded.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined()
+        return alphanumeric.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
     }
 }

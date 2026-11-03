@@ -85,9 +85,12 @@ final class PluginCatalogStore: ObservableObject {
             for format in Set(product.installations.map(\.format)) {
                 formats[format, default: 0] += 1
             }
-            if let manualFormat = product.manualFormat,
-               let format = PluginFormat.allCases.first(where: { $0.rawValue == manualFormat }) {
-                formats[format, default: 0] += 1
+            if let manualFormat = product.manualFormat {
+                for label in manualFormat.components(separatedBy: " · ") {
+                    if let format = PluginFormat.allCases.first(where: { $0.rawValue == label }) {
+                        formats[format, default: 0] += 1
+                    }
+                }
             }
         }
         categoryCounts = categories
