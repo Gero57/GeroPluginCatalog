@@ -13,6 +13,8 @@ final class PluginCatalogStore: ObservableObject {
     @Published private(set) var lastScanDate: Date?
     @Published private(set) var scanMessage = "Ready to scan"
     @Published private(set) var artworkPaths: [String: String] = [:]
+    @Published private(set) var categoryOverrides: [String: PluginCategory] = [:]
+    private let categoryOverridesURL: URL
     @Published private(set) var artworkSearchMessage = ""
     @Published private(set) var searchingArtworkID: String?
 
@@ -23,8 +25,11 @@ final class PluginCatalogStore: ObservableObject {
     init() {
         artworkPaths = artworkStore.paths
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        manualCatalogURL = support.appendingPathComponent("GeroPluginCatalog/manual-plugins.json")
+        let catalogFolder = support.appendingPathComponent("GeroPluginCatalog", isDirectory: true)
+        manualCatalogURL = catalogFolder.appendingPathComponent("manual-plugins.json")
+        categoryOverridesURL = catalogFolder.appendingPathComponent("category-overrides.json")
         loadManualPlugins()
+        loadCategoryOverrides()
         rebuildCatalog()
     }
 
@@ -37,6 +42,14 @@ final class PluginCatalogStore: ObservableObject {
         saveManualPlugins()
         rebuildCatalog()
         scanMessage = "Manual plug-in added"
+    }
+
+    func setCategory(_ category: PluginCategory, for product: PluginProduct) {
+        let key = PluginProduct.categoryOverrideKey(name: product.name, manufacturer: product.manufacturer)
+        categoryOverrides[key] = category
+        saveCategoryOverrides()
+        rebuildCatalog()
+        scanMessage = "Category saved for \(product.name)"
     }
 
     func deleteManualPlugins(ids: [String]) {
@@ -92,7 +105,12 @@ final class PluginCatalogStore: ObservableObject {
     /// never as a side effect of selecting a filter or opening a card.
     private func rebuildCatalog() {
         let newProducts = PluginProduct.catalog(from: installations, manual: manualPlugins)
-        products = newProducts
+        products = newProducts.map { product in
+            var updated = product
+            let key = PluginProduct.categoryOverrideKey(name: product.name, manufacturer: product.manufacturer)
+            if let override = categoryOverrides[key] { updated.category = override }
+            return updated
+        }
 
         var categories: [PluginCategory: Int] = [:]
         var formats: [PluginFormat: Int] = [:]
@@ -117,6 +135,23 @@ final class PluginCatalogStore: ObservableObject {
         guard let data = try? Data(contentsOf: manualCatalogURL),
               let saved = try? JSONDecoder().decode([ManualPlugin].self, from: data) else { return }
         manualPlugins = saved
+    }
+
+    private func loadCategoryOverrides() {
+        guard let data = try? Data(contentsOf: categoryOverridesURL),
+              let saved = try? JSONDecoder().decode([String: PluginCategory].self, from: data) else { return }
+        categoryOverrides = saved
+    }
+
+    private func saveCategoryOverrides() {
+        do {
+            try FileManager.default.createDirectory(at: categoryOverridesURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(categoryOverrides)
+            try data.write(to: categoryOverridesURL, options: .atomic)
+        } catch {
+            scanMessage = "Could not save category changes: \(error.localizedDescription)"
+        }
     }
 
     private func saveManualPlugins() {

@@ -256,8 +256,16 @@ private struct PluginCard: View {
 private struct PluginDetailSheet: View {
     let product: PluginProduct
     let onDeleteManual: () -> Void
+    @State private var selectedCategory: PluginCategory
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: PluginCatalogStore
+
+    init(product: PluginProduct, onDeleteManual: @escaping () -> Void) {
+        self.product = product
+        self.onDeleteManual = onDeleteManual
+        _selectedCategory = State(initialValue: product.category)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -300,6 +308,19 @@ private struct PluginDetailSheet: View {
                     .foregroundStyle(.secondary)
             }
             Divider()
+            HStack {
+                Picker("Category", selection: $selectedCategory) {
+                    ForEach(PluginCategory.allCases, id: \.self) { category in
+                        Text(category.rawValue).tag(category)
+                    }
+                }
+                .frame(maxWidth: 260)
+                Button("Save category") {
+                    store.setCategory(selectedCategory, for: product)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selectedCategory == product.category)
+            }
             Text(product.installations.isEmpty ? "Catalog entry" : "Installed formats and locations").font(.headline)
             if product.installations.isEmpty {
                 Text("This is a visual catalog entry. It does not represent an installed plug-in.").foregroundStyle(.secondary)

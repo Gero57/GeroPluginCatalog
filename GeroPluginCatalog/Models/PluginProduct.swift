@@ -97,7 +97,33 @@ struct PluginProduct: Identifiable, Hashable {
             }
         }
 
-        return (scanned + manualOnly).sorted {
+        // Final safety pass: collapse products whose display names and vendors
+        // normalize to the same identity. This catches duplicated bundle records
+        // and metadata differences that slipped through the first grouping pass.
+        var deduplicated: [PluginProduct] = []
+        for product in scanned {
+            let nameKey = normalize(product.name)
+            let makerKey = normalize(product.manufacturer ?? "")
+            if let index = deduplicated.firstIndex(where: {
+                normalize($0.name) == nameKey &&
+                (normalize($0.manufacturer ?? "").isEmpty || makerKey.isEmpty ||
+                 normalize($0.manufacturer ?? "") == makerKey)
+            }) {
+                deduplicated[index].installations = Array(Set(
+                    deduplicated[index].installations + product.installations
+                )).sorted { $0.format.rawValue < $1.format.rawValue }
+                if deduplicated[index].manufacturer?.isEmpty != false {
+                    deduplicated[index].manufacturer = product.manufacturer
+                }
+                if deduplicated[index].artworkPath == nil {
+                    deduplicated[index].artworkPath = product.artworkPath
+                }
+            } else {
+                deduplicated.append(product)
+            }
+        }
+
+        return (deduplicated + manualOnly).sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
@@ -112,8 +138,12 @@ struct PluginProduct: Identifiable, Hashable {
         }
     }
 
+    static func categoryOverrideKey(name: String, manufacturer: String?) -> String {
+        "\(normalize(manufacturer ?? ""))|\(normalize(name))"
+    }
+
     private static func normalize(_ value: String) -> String {
-        let folded = value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        let folded = value.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
         let alphanumeric = folded.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined()
         return alphanumeric.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
     }
