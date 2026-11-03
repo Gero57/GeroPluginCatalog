@@ -43,7 +43,7 @@ final class PluginCatalogStore: ObservableObject {
         let panel = NSOpenPanel()
         panel.title = "Import Cubase Plug-in Report"
         panel.message = "Select the text report created by Cubase 13 Plug-in Manager."
-        panel.allowedContentTypes = [.plainText]
+        panel.allowedFileTypes = ["txt"]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
