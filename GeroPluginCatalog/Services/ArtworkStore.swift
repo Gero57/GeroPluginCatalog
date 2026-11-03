@@ -56,9 +56,14 @@ final class ArtworkStore {
     }
 
     func searchAndSaveImage(for productID: String, name: String, manufacturer: String?) async -> String {
-        var query = "\"\(name)\""
-        if let manufacturer, !manufacturer.isEmpty { query += " \(manufacturer)" }
-        query += " audio plugin official product"
+        // Use a broad product query: exact quoted searches can return too few results.
+        var terms = [name]
+        if let manufacturer, !manufacturer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            terms.append(manufacturer)
+        }
+        terms.append("audio plugin")
+        let query = terms.joined(separator: " ")
+
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let searchURL = URL(string: "https://html.duckduckgo.com/html/?q=" + encoded) else {
             return "Search URL could not be created"
@@ -66,77 +71,108 @@ final class ArtworkStore {
 
         do {
             var request = URLRequest(url: searchURL)
-            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+            request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
             request.timeoutInterval = 15
-            let (searchData, _) = try await URLSession.shared.data(for: request)
+            let (searchData, searchResponse) = try await URLSession.shared.data(for: request)
+            guard let searchHTTP = searchResponse as? HTTPURLResponse,
+                  (200...299).contains(searchHTTP.statusCode) else {
+                let status = (searchResponse as? HTTPURLResponse)?.statusCode ?? -1
+                return "Search service returned HTTP \(status)"
+            }
             guard let html = String(data: searchData, encoding: .utf8) else {
                 return "The search engine returned an unreadable page"
             }
-            // Match result anchors independently of HTML attribute order.
-            let anchorPattern = #"<a\b(?=[^>]*class=["'][^"']*result__a[^"']*["'])[^>]*>"#
+
+            // DuckDuckGo has changed its result markup more than once. Read every
+            // anchor href and decode its redirect, rather than depending on class/order.
+            let anchorPattern = #"<a\b[^>]*>"#
+            let hrefPattern = #"href\s*=\s*["']([^"']+)["']"#
             guard let anchorRegex = try? NSRegularExpression(pattern: anchorPattern, options: [.caseInsensitive]),
-                  let hrefRegex = try? NSRegularExpression(pattern: #"href=["']([^"']+)["']"#, options: [.caseInsensitive]) else {
+                  let hrefRegex = try? NSRegularExpression(pattern: hrefPattern, options: [.caseInsensitive]) else {
                 return "Could not read search results"
             }
-            let anchors = anchorRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
             var pages: [URL] = []
+            var seen = Set<String>()
+            let anchors = anchorRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
             for anchor in anchors {
-                guard let anchorRange = Range(anchor.range, in: html) else { continue }
-                let tag = String(html[anchorRange])
+                guard let tagRange = Range(anchor.range, in: html) else { continue }
+                let tag = String(html[tagRange])
                 guard let href = hrefRegex.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)),
-                      let range = Range(href.range(at: 1), in: tag) else { continue }
-                let raw = String(tag[range])
-                let destination: String
+                      let valueRange = Range(href.range(at: 1), in: tag) else { continue }
+                var raw = String(tag[valueRange]).replacingOccurrences(of: "&amp;", with: "&")
+                if raw.hasPrefix("//") { raw = "https:" + raw }
+
+                var destination = raw
                 if let components = URLComponents(string: raw),
                    let redirect = components.queryItems?.first(where: { $0.name == "uddg" })?.value {
                     destination = redirect
-                } else {
-                    destination = raw
                 }
                 guard let url = URL(string: destination),
                       ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                       let host = url.host?.lowercased(),
                       !host.contains("duckduckgo.com"),
                       !host.contains("youtube.com"),
-                      !host.contains("facebook.com") else { continue }
+                      !host.contains("facebook.com"),
+                      !host.contains("instagram.com"),
+                      seen.insert(url.absoluteString).inserted else { continue }
                 pages.append(url)
             }
-            guard !pages.isEmpty else { return "No matching product pages were found" }
 
-            for page in pages.prefix(5) {
+            guard !pages.isEmpty else {
+                return "The search service responded, but returned no readable result links (HTTP \(searchHTTP.statusCode), \(searchData.count) bytes)"
+            }
+
+            // Inspect more results, but keep each request bounded so the search stays quick.
+            for page in pages.prefix(8) {
                 var pageRequest = URLRequest(url: page)
                 pageRequest.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-                pageRequest.timeoutInterval = 12
-                guard let (pageData, _) = try? await URLSession.shared.data(for: pageRequest),
+                pageRequest.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+                pageRequest.timeoutInterval = 8
+                guard let (pageData, pageResponse) = try? await URLSession.shared.data(for: pageRequest),
+                      let pageHTTP = pageResponse as? HTTPURLResponse,
+                      (200...299).contains(pageHTTP.statusCode),
                       let pageHTML = String(data: pageData, encoding: .utf8) else { continue }
-                let metaPattern = #"<meta\b[^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*>"#
-                guard let metaRegex = try? NSRegularExpression(pattern: metaPattern, options: [.caseInsensitive]) else { continue }
+
+                // Accept either attribute order: property/name may follow content.
+                let metaPattern = #"<meta\b[^>]*>"#
+                let attributePattern = #"([a-zA-Z:_-]+)\s*=\s*["']([^"']*)["']"#
+                guard let metaRegex = try? NSRegularExpression(pattern: metaPattern, options: [.caseInsensitive]),
+                      let attributeRegex = try? NSRegularExpression(pattern: attributePattern, options: [.caseInsensitive]) else { continue }
+
                 for meta in metaRegex.matches(in: pageHTML, range: NSRange(pageHTML.startIndex..., in: pageHTML)) {
                     guard let metaRange = Range(meta.range, in: pageHTML) else { continue }
                     let tag = String(pageHTML[metaRange])
-                    let contentPattern = #"content=["']([^"']+)["']"#
-                    guard let contentRegex = try? NSRegularExpression(pattern: contentPattern, options: [.caseInsensitive]),
-                          let content = contentRegex.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)),
-                          let valueRange = Range(content.range(at: 1), in: tag) else { continue }
-                    let value = String(tag[valueRange])
-                    guard let imageURL = URL(string: value, relativeTo: page)?.absoluteURL else { continue }
+                    var attributes: [String: String] = [:]
+                    for match in attributeRegex.matches(in: tag, range: NSRange(tag.startIndex..., in: tag)) {
+                        guard let keyRange = Range(match.range(at: 1), in: tag),
+                              let valueRange = Range(match.range(at: 2), in: tag) else { continue }
+                        attributes[String(tag[keyRange]).lowercased()] = String(tag[valueRange])
+                    }
+                    let property = (attributes["property"] ?? attributes["name"] ?? "").lowercased()
+                    guard property == "og:image" || property == "twitter:image",
+                          let imageValue = attributes["content"],
+                          let imageURL = URL(string: imageValue.replacingOccurrences(of: "&amp;", with: "&"), relativeTo: page)?.absoluteURL else { continue }
+
                     var imageRequest = URLRequest(url: imageURL)
-                    imageRequest.setValue("GeroPluginCatalog/1.0", forHTTPHeaderField: "User-Agent")
-                    imageRequest.timeoutInterval = 15
+                    imageRequest.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    imageRequest.timeoutInterval = 10
                     guard let (imageData, response) = try? await URLSession.shared.data(for: imageRequest),
                           let http = response as? HTTPURLResponse,
                           (200...299).contains(http.statusCode),
                           let image = NSImage(data: imageData),
-                          image.size.width >= 100, image.size.height >= 60 else { continue }
+                          image.size.width >= 80, image.size.height >= 50 else { continue }
                     do {
-                        try saveImage(imageData, for: productID, preferredExtension: imageURL.pathExtension.isEmpty ? "jpg" : imageURL.pathExtension)
+                        try saveImage(imageData, for: productID,
+                                      preferredExtension: imageURL.pathExtension.isEmpty ? "jpg" : imageURL.pathExtension)
                         return "Artwork found and saved"
                     } catch {
                         return "Image found, but could not be saved: \(error.localizedDescription)"
                     }
                 }
             }
-            return "No suitable image found. You can choose a screenshot manually."
+            return "Found \(pages.count) result pages, but none exposed a downloadable product image. You can choose a screenshot manually."
         } catch {
             return "Online search failed: \(error.localizedDescription)"
         }
