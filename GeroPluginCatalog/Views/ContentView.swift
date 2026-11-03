@@ -214,9 +214,9 @@ private struct PluginCard: View {
                     GeometryReader { imageArea in
                         Image(nsImage: artwork)
                             .resizable()
-                            .scaledToFill()
+                            .scaledToFit()
                             .frame(width: imageArea.size.width, height: imageArea.size.height)
-                            .clipped()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
                     Image(systemName: product.category.symbol)
