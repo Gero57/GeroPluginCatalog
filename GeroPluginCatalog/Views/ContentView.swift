@@ -388,9 +388,13 @@ private struct AddPluginSheet: View {
                 Picker("Category", selection: $category) {
                     ForEach(PluginCategory.allCases, id: \.self) { item in Text(item.rawValue).tag(item) }
                 }
-                Picker("Format", selection: $format) {
+                Picker("Plug-in format", selection: $format) {
                     ForEach(formats, id: \.self) { item in Text(item).tag(item) }
                 }
+                .pickerStyle(.menu)
+                Text("Choose VST3, AU, VST3 · AU for both, or another format.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()
@@ -400,6 +404,6 @@ private struct AddPluginSheet: View {
                     dismiss()
                 }.buttonStyle(.borderedProminent).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(24).frame(width: 460, height: 360)
+        }.padding(24).frame(width: 460, height: 420)
     }
 }
