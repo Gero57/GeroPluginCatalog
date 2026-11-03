@@ -38,7 +38,7 @@ struct PluginProduct: Identifiable, Hashable {
             // Remove repeated records pointing to the same format and bundle path.
             var seenInstallations = Set<String>()
             let uniqueInstallations = sorted.filter { item in
-                let key = "\(item.format.rawValue)|\(item.path.standardizedFileURL.path)|\(normalize(item.name))"
+                let key = "\(item.format.rawValue)|\(item.path)|\(normalize(item.name))"
                 return seenInstallations.insert(key).inserted
             }
 

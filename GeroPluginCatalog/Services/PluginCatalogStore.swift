@@ -63,7 +63,7 @@ final class PluginCatalogStore: ObservableObject {
 
     func chooseArtwork(for productID: String) {
         artworkStore.chooseImage(for: productID)
-        artworkPaths = artworkStore.paths
+        refreshArtworkPaths()
     }
 
     func searchArtwork(for product: PluginProduct) async {
@@ -72,7 +72,7 @@ final class PluginCatalogStore: ObservableObject {
         artworkSearchMessage = "Searching online for \(product.name)…"
         let message = await artworkStore.searchAndSaveImage(
             for: product.id, name: product.name, manufacturer: product.manufacturer)
-        artworkPaths = artworkStore.paths
+        refreshArtworkPaths()
         artworkSearchMessage = message
         searchingArtworkID = nil
     }
@@ -111,6 +111,7 @@ final class PluginCatalogStore: ObservableObject {
             if let override = categoryOverrides[key] { updated.category = override }
             return updated
         }
+        refreshArtworkPaths()
 
         var categories: [PluginCategory: Int] = [:]
         var formats: [PluginFormat: Int] = [:]
@@ -129,6 +130,25 @@ final class PluginCatalogStore: ObservableObject {
         }
         categoryCounts = categories
         formatCounts = formats
+    }
+
+    private func refreshArtworkPaths() {
+        // Preserve artwork saved under the previous bundle/vendor-based product IDs.
+        // New product IDs are name-based so AU and VST variants now share one card.
+        var refreshed = artworkStore.paths
+        for product in products {
+            if refreshed[product.id] != nil { continue }
+            let nameKey = PluginProduct.categoryOverrideKey(name: product.name, manufacturer: nil)
+            let oldKeys = artworkStore.paths.keys.filter { key in
+                key.hasSuffix("|class:\(nameKey)") ||
+                key.hasSuffix("|\(nameKey)") ||
+                product.manualEntryIDs.contains(key)
+            }
+            if let oldKey = oldKeys.first, let path = artworkStore.paths[oldKey] {
+                refreshed[product.id] = path
+            }
+        }
+        artworkPaths = refreshed
     }
 
     private func loadManualPlugins() {
