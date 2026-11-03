@@ -38,14 +38,12 @@ struct PluginScanner {
         )
     }
 
-    /// Searches standard plug-in folders and application-local Cubase/Nuendo folders.
+    /// Reads standard plug-in folders plus Cubase/Nuendo application-local and
+    /// Steinberg shared component bundles. No plug-in binary is loaded or executed.
     private func scanDirectory(
         _ directory: URL, format: PluginFormat, isUser: Bool,
         found: inout [PluginInstallation], inaccessible: inout [String]
     ) {
-        // FileManager's enumerator avoids repeatedly opening each directory and
-        // asking for resource values. Package descendants are skipped, so a
-        // .vst3/.vst/.component bundle is inspected once as a single unit.
         guard let enumerator = fileManager.enumerator(
             at: directory,
             includingPropertiesForKeys: nil,
@@ -69,7 +67,7 @@ struct PluginScanner {
         let userBase = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Audio/Plug-Ins", isDirectory: true)
 
-        var roots = PluginFormat.allCases.flatMap { format in
+        var roots = PluginFormat.allCases.filter { $0 != .cubaseInternal }.flatMap { format in
             [
                 ScanRoot(url: systemBase.appendingPathComponent(format.folderName, isDirectory: true),
                          format: format, isUser: false),
@@ -78,7 +76,18 @@ struct PluginScanner {
             ]
         }
 
-        // Steinberg documents these application-local VST locations for Cubase/Nuendo.
+        // Steinberg shared components used by Cubase, including Cubase's own
+        // internal processors and instruments.
+        roots.append(ScanRoot(
+            url: URL(fileURLWithPath: "/Library/Application Support/Steinberg/Components", isDirectory: true),
+            format: .cubaseInternal, isUser: false
+        ))
+        roots.append(ScanRoot(
+            url: fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/Steinberg/Components", isDirectory: true),
+            format: .cubaseInternal, isUser: true
+        ))
+
         let applicationFolders = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             URL(fileURLWithPath: "/Applications/Steinberg", isDirectory: true)
@@ -104,12 +113,15 @@ struct PluginScanner {
                     url: contents.appendingPathComponent("VstPlugins", isDirectory: true),
                     format: .vst2, isUser: false
                 ))
+                roots.append(ScanRoot(
+                    url: contents.appendingPathComponent("Components", isDirectory: true),
+                    format: .cubaseInternal, isUser: false
+                ))
             }
         }
         return roots
     }
 
-    /// A single VST3 bundle may expose several audio plug-in classes via moduleinfo.json.
     private func inspectBundle(at url: URL, format: PluginFormat, isUser: Bool) -> [PluginInstallation] {
         let bundle = Bundle(url: url)
         let info = bundle?.infoDictionary ?? [:]
