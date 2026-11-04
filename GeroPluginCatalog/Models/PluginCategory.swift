@@ -49,6 +49,8 @@ enum PluginCategory: String, CaseIterable, Identifiable, Codable {
         let value = name.lowercased()
 
         // Effects first, so names such as "Bass Enhancer" are not mistaken for instruments.
+        if contains(value, ["channel strip", "channelstrip", "console channel"]) { return .channelStrip }
+        if contains(value, ["sequencer", "step sequencer", "stepseq"]) { return .sequencer }
         if contains(value, ["delay", "echo", "tape echo", "slap"]) { return .delay }
         if contains(value, ["reverb", "room", "plate", "hall", "spring", "space"]) { return .reverb }
         if contains(value, ["equalizer", "equaliser", "pro-q"]) || value.hasPrefix("eq ") || value.hasSuffix(" eq") {
