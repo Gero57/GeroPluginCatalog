@@ -18,6 +18,8 @@ enum PluginCategory: String, CaseIterable, Identifiable, Codable {
     case orchestralStrings = "Orchestral / Strings"
     case instrument = "Other Instrument"
     case utility = "Utility"
+    case channelStrip = "ChannelStrip"
+    case sequencer = "Sequencer"
     case other = "Other"
 
     var id: String { rawValue }
@@ -36,6 +38,8 @@ enum PluginCategory: String, CaseIterable, Identifiable, Codable {
         case .pianoKeys: return "pianokeys"
         case .orchestralStrings: return "music.note"
         case .utility: return "wrench.and.screwdriver"
+        case .channelStrip: return "slider.horizontal.3"
+        case .sequencer: return "list.number"
         case .other: return "puzzlepiece.extension"
         }
     }
