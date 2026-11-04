@@ -22,6 +22,8 @@ struct ContentView: View {
     @State private var selectedProduct: PluginProduct?
     @State private var showingAddPlugin = false
     @State private var showingAppearance = false
+    @State private var showingHidden = false
+    @State private var formatsExpanded = false
     @AppStorage("interfaceScale") private var interfaceScale = 1.0
     @AppStorage("interfaceTheme") private var interfaceTheme = "System"
     @AppStorage("interfaceAccent") private var interfaceAccent = "Blue"
@@ -57,6 +59,8 @@ struct ContentView: View {
 
     private var filteredProducts: [PluginProduct] {
         store.products.filter { product in
+            let isHidden = store.hiddenPluginIDs.contains(product.id)
+            guard showingHidden ? isHidden : !isHidden else { return false }
             let matchesSearch = searchText.isEmpty
                 || product.name.localizedCaseInsensitiveContains(searchText)
                 || (product.manufacturer?.localizedCaseInsensitiveContains(searchText) ?? false)
@@ -76,8 +80,18 @@ struct ContentView: View {
                     Button {
                         selectedCategory = nil
                         selectedFormat = nil
+                        showingHidden = false
                     } label: {
                         Label("All Plug-ins", systemImage: "square.grid.2x2")
+                    }.buttonStyle(.plain)
+                    Button {
+                        selectedCategory = nil
+                        selectedFormat = nil
+                        showingHidden = true
+                    } label: {
+                        Label("Hidden Plug-ins", systemImage: "eye.slash")
+                            .badge(store.hiddenPluginIDs.count)
+                            .foregroundStyle(showingHidden ? Color.accentColor : .primary)
                     }.buttonStyle(.plain)
                 }
                 Section("Categories") {
@@ -91,7 +105,7 @@ struct ContentView: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                Section("Formats") {
+                DisclosureGroup("Formats", isExpanded: $formatsExpanded) {
                     ForEach(PluginFormat.allCases) { format in
                         Button {
                             selectedFormat = selectedFormat == format ? nil : format
@@ -168,7 +182,7 @@ struct ContentView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(selectedCategory?.rawValue ?? "Your Audio Plug-ins").font(.largeTitle.bold())
+                Text(showingHidden ? "Hidden Plug-ins" : (selectedCategory?.rawValue ?? "Your Audio Plug-ins")).font(.largeTitle.bold())
                 Text("\(filteredProducts.count) products · \(filteredProducts.reduce(0) { $0 + max($1.installations.count, $1.manualFormat == nil ? 0 : 1) }) entries")
                     .foregroundStyle(.secondary)
             }
@@ -293,6 +307,13 @@ private struct PluginDetailSheet: View {
                     .disabled(store.searchingArtworkID != nil)
                     Button { store.chooseArtwork(for: product.id) } label: {
                         Label("Choose image…", systemImage: "photo")
+                    }
+                    Button {
+                        store.toggleHidden(product)
+                        dismiss()
+                    } label: {
+                        Label(store.hiddenPluginIDs.contains(product.id) ? "Restore plug-in" : "Hide plug-in",
+                              systemImage: store.hiddenPluginIDs.contains(product.id) ? "eye" : "eye.slash")
                     }
                     if !product.manualEntryIDs.isEmpty {
                         Button(role: .destructive) {
