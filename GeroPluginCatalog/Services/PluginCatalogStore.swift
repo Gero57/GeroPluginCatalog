@@ -236,7 +236,12 @@ final class PluginCatalogStore: ObservableObject {
     private func loadManualPlugins() {
         guard let data = try? Data(contentsOf: manualCatalogURL),
               let saved = try? JSONDecoder().decode([ManualPlugin].self, from: data) else { return }
-        manualPlugins = saved
+        manualPlugins = saved.map { item in
+            var migrated = item
+            if migrated.category == .compressor || migrated.category == .limiter { migrated.category = .dynamics }
+            return migrated
+        }
+        if manualPlugins != saved { saveManualPlugins() }
     }
 
     private func loadCategoryOverrides() {
@@ -245,7 +250,8 @@ final class PluginCatalogStore: ObservableObject {
         var migrated: [String: PluginCategory] = [:]
         for (key, category) in saved {
             let name = key.contains("|") ? (key.split(separator: "|").last.map(String.init) ?? key) : key
-            migrated[PluginProduct.categoryOverrideKey(name: name, manufacturer: nil)] = category
+            let normalizedCategory: PluginCategory = (category == .compressor || category == .limiter) ? .dynamics : category
+            migrated[PluginProduct.categoryOverrideKey(name: name, manufacturer: nil)] = normalizedCategory
         }
         categoryOverrides = migrated
         if migrated != saved { saveCategoryOverrides() }
