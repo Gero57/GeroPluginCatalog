@@ -19,11 +19,13 @@ final class PluginCatalogStore: ObservableObject {
     @Published private(set) var artworkSearchMessage = ""
     @Published private(set) var searchingArtworkID: String?
     @Published private(set) var importedReportCount = 0
+    @Published private(set) var hiddenPluginIDs: Set<String> = []
 
     private let scanner = PluginScanner()
     private let artworkStore = ArtworkStore()
     private let manualCatalogURL: URL
     private let reportImportURL: URL
+    private let hiddenPluginsURL: URL
     private var reportInstallations: [PluginInstallation] = []
 
     init() {
@@ -33,9 +35,11 @@ final class PluginCatalogStore: ObservableObject {
         manualCatalogURL = catalogFolder.appendingPathComponent("manual-plugins.json")
         categoryOverridesURL = catalogFolder.appendingPathComponent("category-overrides.json")
         reportImportURL = catalogFolder.appendingPathComponent("cubase-report-plugins.json")
+        hiddenPluginsURL = catalogFolder.appendingPathComponent("hidden-plugins.json")
         loadManualPlugins()
         loadCategoryOverrides()
         loadReportPlugins()
+        loadHiddenPlugins()
         rebuildCatalog()
     }
 
@@ -83,6 +87,32 @@ final class PluginCatalogStore: ObservableObject {
         saveCategoryOverrides()
         rebuildCatalog()
         scanMessage = "Category saved for \(product.name)"
+    }
+
+    func toggleHidden(_ product: PluginProduct) {
+        if hiddenPluginIDs.contains(product.id) {
+            hiddenPluginIDs.remove(product.id)
+            scanMessage = "\(product.name) restored to the catalog"
+        } else {
+            hiddenPluginIDs.insert(product.id)
+            scanMessage = "\(product.name) hidden from the catalog"
+        }
+        saveHiddenPlugins()
+    }
+
+    private func loadHiddenPlugins() {
+        guard let data = try? Data(contentsOf: hiddenPluginsURL),
+              let saved = try? JSONDecoder().decode(Set<String>.self, from: data) else { return }
+        hiddenPluginIDs = saved
+    }
+
+    private func saveHiddenPlugins() {
+        do {
+            try FileManager.default.createDirectory(at: hiddenPluginsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(hiddenPluginIDs).write(to: hiddenPluginsURL, options: .atomic)
+        } catch {
+            scanMessage = "Could not save hidden plug-ins: \(error.localizedDescription)"
+        }
     }
 
     func deleteManualPlugins(ids: [String]) {
