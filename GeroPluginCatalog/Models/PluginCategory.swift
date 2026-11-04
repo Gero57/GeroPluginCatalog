@@ -22,6 +22,8 @@ enum PluginCategory: String, CaseIterable, Identifiable, Codable {
     case sequencer = "Sequencer"
     case other = "Other"
 
+    static var allCases: [PluginCategory] { [.delay, .reverb, .equalizer, .modulation, .distortion, .dynamics, .channelStrip, .sequencer, .synthesizer, .drumPercussion, .bass, .guitar, .sampler, .pianoKeys, .orchestralStrings, .instrument, .utility, .other] }
+
     var id: String { rawValue }
 
     var symbol: String {
@@ -56,8 +58,8 @@ enum PluginCategory: String, CaseIterable, Identifiable, Codable {
         if contains(value, ["equalizer", "equaliser", "pro-q"]) || value.hasPrefix("eq ") || value.hasSuffix(" eq") {
             return .equalizer
         }
-        if contains(value, ["limiter", "l2", "l3", "maximizer", "maximiser"]) { return .limiter }
-        if contains(value, ["compressor", "comp", "1176", "la-2a", "bus comp"]) { return .compressor }
+        if contains(value, ["limiter", "l2", "l3", "maximizer", "maximiser"]) { return .dynamics }
+        if contains(value, ["compressor", "comp", "1176", "la-2a", "bus comp"]) { return .dynamics }
         if contains(value, ["chorus", "flanger", "phaser", "tremolo", "vibrato", "modulation"]) { return .modulation }
         if contains(value, ["distortion", "saturat", "overdrive", "fuzz", "amp", "crusher"]) { return .distortion }
         if contains(value, ["gate", "expander", "transient", "dynamics"]) { return .dynamics }
